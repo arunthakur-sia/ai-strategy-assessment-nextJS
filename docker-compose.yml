@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  # ─── SIA Assessment App ─────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_SECRET: change_me_in_production_use_a_long_random_string
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # Supabase
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      # SiaGPT (Claude)
+      SIAGPT_BASE_URL: ${SIAGPT_BASE_URL:-https://backend.siagpt.ai}
+      SIAGPT_PROJECT_ID: ${SIAGPT_PROJECT_ID}
+      OAUTH2_TOKEN_URL: ${OAUTH2_TOKEN_URL}
+      OAUTH2_CLIENT_ID: ${OAUTH2_CLIENT_ID}
+      OAUTH2_CLIENT_SECRET: ${OAUTH2_CLIENT_SECRET}
+      ZITADEL_PROJECT_ID: ${ZITADEL_PROJECT_ID}
+      SIAGPT_ASSISTANT_ID: ${SIAGPT_ASSISTANT_ID}
+      SIAGPT_BUNDLE_ID: ${SIAGPT_BUNDLE_ID}
+    volumes:
+      # Persist uploaded documents across restarts
+      - uploads_data:/app/dist/uploads
+
+volumes:
+  uploads_data:
