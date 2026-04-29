@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { projectsApi, aiApi } from '../api'
 import { Plus, Trash2, ChevronDown, ChevronUp, Loader2, Target, Calendar } from 'lucide-react'
+import EntityBanner from '../components/EntityBanner'
 
 function uuid() { return crypto.randomUUID() }
 
@@ -12,7 +13,7 @@ const PRIORITY_COLORS: Record<string, any> = {
 }
 
 export default function InitiativesPage() {
-  const { project, setProject } = useStore()
+  const { project, setProject, activeEntityId } = useStore()
   const [expandedObj, setExpandedObj] = useState<string | null>(null)
   const [expandedInit, setExpandedInit] = useState<string | null>(null)
   const [generating, setGenerating] = useState<string | null>(null)
@@ -23,13 +24,19 @@ export default function InitiativesPage() {
 
   if (!project) return null
 
-  const nodes: any[] = project.strategy?.nodes || []
-  const levelNames = project.strategy?.levelNames || ['Vision','Strategic Option','Outcome','Initiative']
+  const activeEntity = activeEntityId ? (project.entities || []).find((e: any) => e.id === activeEntityId) : null
+  const strategy = activeEntity?.strategy || project.strategy
+  const nodes: any[] = strategy?.nodes || []
+  const levelNames = strategy?.levelNames || ['Vision','Strategic Option','Outcome','Initiative']
 
   const objectiveNodes = nodes.filter(n => n.level === 1)
 
   async function saveStrategy(newNodes: any[]) {
-    await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+    if (activeEntity) {
+      await projectsApi.updateEntityStrategy(project.id, activeEntity.id, { nodes: newNodes })
+    } else {
+      await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+    }
     const res = await projectsApi.get(project.id)
     setProject(res.data)
   }
@@ -37,7 +44,7 @@ export default function InitiativesPage() {
   async function generateInitiatives(objectiveNode: any) {
     setGenerating(objectiveNode.id)
     try {
-      const res = await aiApi.generateStrategy(project.id, 'initiatives', { objectiveTitle: objectiveNode.title })
+      const res = await aiApi.generateStrategy(project.id, 'initiatives', { objectiveTitle: objectiveNode.title, entityId: activeEntityId || undefined })
       const { initiatives } = res.data.data
       const newNodes = [...nodes]
       for (const init of (initiatives || [])) {
@@ -65,7 +72,7 @@ export default function InitiativesPage() {
   async function generateProjects(initNode: any) {
     setGenerating(`proj_${initNode.id}`)
     try {
-      const res = await aiApi.generateStrategy(project.id, 'projects', { initiativeTitle: initNode.title })
+      const res = await aiApi.generateStrategy(project.id, 'projects', { initiativeTitle: initNode.title, entityId: activeEntityId || undefined })
       const { projects } = res.data.data
       const newNodes = [...nodes]
       for (const proj of (projects || [])) {
@@ -138,6 +145,7 @@ export default function InitiativesPage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 800, color: 'var(--sia-navy)' }}>Strategic Implementation Plan</h1>
         <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', marginTop: '6px' }}>{objectiveNodes.length} strategic objectives • {nodes.filter(n => n.level === 2).length} initiatives • {nodes.filter(n => n.level === 3).length} projects</div>
       </div>
+      <EntityBanner note={activeEntity ? `Showing ${activeEntity.name}'s strategy. Switch entities in the sidebar to view another entity's initiatives.` : 'Showing the main project strategy. Select a subsidiary in the sidebar to manage its own initiatives.'} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {objectiveNodes.map((obj: any) => {

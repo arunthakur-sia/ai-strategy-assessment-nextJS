@@ -1,0 +1,40 @@
+# SiaGPT Raw Response — D1 Agent Test
+# Timestamp : 2026-04-28T12:45:17.725Z
+# HTTP Status: 200
+# Length    : 2721 chars
+# Duration  : 330.7s
+#──────────────────────────────────────────────────────────────────────────────
+
+## REQUEST PAYLOAD
+
+{
+  "question": "make a docx of one page hello world using file generation tool",
+  "messageId": "1c173627-0225-4596-8ab3-02da9df6e71d",
+  "discussionId": "019dd41a-4f49-7d35-abe1-3fbeec2c8151",
+  "ownerId": "019cd318-5f66-7f23-a114-3400179bc75c",
+  "ownerType": "USER",
+  "messageMetadata": {
+    "assistantId": "019dd2dc-30d6-7aa3-9fea-ab9a4f55abb0",
+    "attachmentInfos": [],
+    "tools": [
+      "rag",
+      "document_content",
+      "list_documents",
+      "query_table",
+      "list_table_schemas",
+      "file_generation"
+    ]
+  }
+}
+
+## RAW RESPONSE
+
+{"event":"NEW_MESSAGE","uuid":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","tools":["rag","document_content","list_documents","query_table","list_table_schemas","file_generation"],"bundle_id":"019b30b3-94bb-788a-829d-c13d533f826a","identity_id":"019dd2dc-33ae-7356-acb5-037bd647de05","role":"assistant"}
+{"event":"NEW_WIDGET","uuid":"019dd41a-5592-716b-a363-f4b8b38d9311","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","type":"markdown","role":"assistant"}
+{"event":"NEW_THINKING","data":"Building agent workflow...","widget_id":"019dd41a-5592-716b-a363-f4b8b38d9311","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f"}
+{"event":"NEW_WIDGET","uuid":"019dd41a-bba5-7405-b2a3-2fe25aa9f765","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","type":"markdown","role":"assistant"}
+{"event":"NEW_TEXT","widget_id":"019dd41a-bba5-7405-b2a3-2fe25aa9f765","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","data":"[Download hello_world.docx](https://s3.eu-west-1.amazonaws.com/heka-prod-siagpt-storage/generated_files/019dd41a-badb-7006-ae77-5d04e84cc407?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAYF5ZL26CORINIVWT%2F20260428%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20260428T124015Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=a167e59772ff4b75178775704bf0b0f453a28f7f6cadf78c8f8409194dd92afc)"}
+{"event":"NEW_WIDGET","uuid":"019dd41b-4d5e-7507-8f72-631f40254b8b","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","type":"markdown","role":"assistant"}
+{"event":"NEW_TEXT","widget_id":"019dd41b-4d5e-7507-8f72-631f40254b8b","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","data":"[Download hello_world.docx](https://s3.eu-west-1.amazonaws.com/heka-prod-siagpt-storage/generated_files/019dd41b-4c6f-7a26-beb8-f5552fb63837?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAYF5ZL26CORINIVWT%2F20260428%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20260428T124052Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=5755c237786530b257ff50a597ac1a3a8a879dc7714e1dcc5820ce622ea1f84f)"}
+{"event":"NEW_WIDGET","uuid":"019dd41b-b1d6-7569-987a-e6bf93468de7","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","type":"markdown","role":"assistant"}
+{"event":"NEW_TEXT","widget_id":"019dd41b-b1d6-7569-987a-e6bf93468de7","message_id":"1c173627-022a-0ebd-9dec-c21f4fc5a86f","data":"[Download generated.docx](https://s3.eu-west-1.amazonaws.com/heka-prod-siagpt-storage/generated_files/019dd41b-9d01-7d43-8195-8d28334c6b93?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAYF5ZL26CORINIVWT%2F20260428%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20260428T124118Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=42d29d6b6ae2111d266cdf5d99f9b44402c4d28d5aea54dc660554c12ed52eb7)"}

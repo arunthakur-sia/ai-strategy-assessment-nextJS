@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { aiApi, projectsApi } from '../api'
-import { Loader2, RefreshCw, Edit3, Save, X, ChevronDown, ChevronUp, Lightbulb } from 'lucide-react'
+import { Loader2, RefreshCw, Edit3, Save, X, ChevronDown, ChevronUp, Lightbulb, Building2, BookOpen } from 'lucide-react'
+import { CitedText, parseCitations, type Citation } from '../components/CitedText'
 
 const SIGNIFICANCE_COLORS: Record<string, any> = {
   high: { bg: '#FEF2F2', border: '#FECACA', color: '#991B1B', dot: '#EF4444' },
@@ -10,7 +11,7 @@ const SIGNIFICANCE_COLORS: Record<string, any> = {
 }
 
 export default function SwotPage() {
-  const { project, setProject } = useStore()
+  const { project, setProject, activeEntityId, sourcesOpen, setSourcesOpen, setActiveSourceNum } = useStore()
   const [consolidating, setConsolidating] = useState(false)
   const [editingHypo, setEditingHypo] = useState(false)
   const [hypoEdit, setHypoEdit] = useState('')
@@ -20,13 +21,32 @@ export default function SwotPage() {
 
   if (!project) return null
 
-  const swot = project.assessment.consolidatedSwot
-  const hypothesis = project.assessment.strategicHypothesis
+  const activeEntity = activeEntityId ? (project.entities || []).find((e: any) => e.id === activeEntityId) : null
+  const activeAssessment = activeEntity ? activeEntity.assessment : project.assessment
+  const swot = activeAssessment.consolidatedSwot
+  const hypothesis = activeAssessment.strategicHypothesis
 
   async function handleConsolidate() {
     setConsolidating(true)
     try {
-      await aiApi.consolidateSwot(project.id)
+      if (activeEntity) {
+        // For entity SWOT, consolidate from entity's own pillar SWOTs
+        const entitySwot: Record<string, any[]> = { strengths: [], weaknesses: [], opportunities: [], threats: [] }
+        Object.values(activeEntity.assessment.pillars).forEach((p: any) => {
+          if (p.swot?.strengths) entitySwot.strengths.push(...p.swot.strengths.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
+          if (p.swot?.weaknesses) entitySwot.weaknesses.push(...p.swot.weaknesses.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
+          if (p.swot?.opportunities) entitySwot.opportunities.push(...p.swot.opportunities.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
+          if (p.swot?.threats) entitySwot.threats.push(...p.swot.threats.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
+        })
+        const updatedEntities = (project.entities || []).map((e: any) =>
+          e.id === activeEntity.id
+            ? { ...e, assessment: { ...e.assessment, consolidatedSwot: entitySwot } }
+            : e
+        )
+        await projectsApi.save(project.id, { ...project, entities: updatedEntities })
+      } else {
+        await aiApi.consolidateSwot(project.id)
+      }
       const res = await projectsApi.get(project.id)
       setProject(res.data)
     } catch (e: any) {
@@ -36,7 +56,16 @@ export default function SwotPage() {
   }
 
   async function saveHypothesis() {
-    await projectsApi.save(project.id, { assessment: { ...project.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } })
+    if (activeEntity) {
+      const updatedEntities = (project.entities || []).map((e: any) =>
+        e.id === activeEntity.id
+          ? { ...e, assessment: { ...e.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } }
+          : e
+      )
+      await projectsApi.save(project.id, { ...project, entities: updatedEntities })
+    } else {
+      await projectsApi.save(project.id, { assessment: { ...project.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } })
+    }
     const res = await projectsApi.get(project.id)
     setProject(res.data)
     setEditingHypo(false)
@@ -54,20 +83,68 @@ export default function SwotPage() {
   const filters = ['all', 'high', 'medium', 'low']
   const totalItems = swotConfig.reduce((s: number, q: any) => s + ((swot as any)?.[q.key]?.length || 0), 0)
 
-  const pillarSwotsWithData = Object.entries(project.assessment.pillars)
+  const pillarSwotsWithData = Object.entries(activeAssessment.pillars)
     .filter(([, p]: [string, any]) => p.swot?.strengths?.length > 0 || p.swot?.weaknesses?.length > 0)
 
+  // Collect all citation-bearing texts and source maps from pillar SWOTs
+  const allSwotTexts: string[] = []
+  const allEntitySources: Record<string, any> = {}
+  for (const [, p] of Object.entries(activeAssessment.pillars) as [string, any][]) {
+    if (p.newSources) Object.assign(allEntitySources, p.newSources)
+    for (const key of ['strengths', 'weaknesses', 'opportunities', 'threats']) {
+      for (const item of ((p.swot as any)?.[key] || [])) allSwotTexts.push(item)
+    }
+  }
+  // Also include consolidated SWOT texts
+  if (swot) {
+    for (const key of ['strengths', 'weaknesses', 'opportunities', 'threats']) {
+      for (const item of ((swot as any)?.[key] || [])) {
+        allSwotTexts.push(typeof item === 'string' ? item : (item.text || ''))
+      }
+    }
+  }
+  const { allCitations: allCites } = parseCitations(allSwotTexts.join(' '))
+
+  function handleCiteClick(c: Citation) {
+    setActiveSourceNum(c.num)
+    setSourcesOpen(true)
+  }
+
   return (
-    <div style={{ padding: '32px', maxWidth: '1200px' }}>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <div style={{ flex: 1, overflow: 'auto', padding: '32px', maxWidth: '1200px' }}>
+      {/* Entity context banner */}
+      {activeEntity && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '8px', marginBottom: '20px' }}>
+          <Building2 size={14} color="#8B5CF6" />
+          <span style={{ fontSize: '12px', fontWeight: 700, color: '#6D28D9' }}>{activeEntity.name}</span>
+          <span style={{ fontSize: '12px', color: '#7C3AED' }}>· Subsidiary Entity — SWOT View</span>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '28px' }}>
         <div>
           <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', fontWeight: 600 }}>SWOT Analysis</div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 800, color: 'var(--sia-navy)' }}>Consolidated Strategic SWOT</h1>
-          <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', marginTop: '6px' }}>AI-synthesized from all 8 pillar assessments • {totalItems} strategic items identified</div>
+          <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', marginTop: '6px' }}>
+            {activeEntity ? `${activeEntity.name} · ` : ''}AI-synthesized from all 8 pillar assessments • {totalItems} strategic items identified
+          </div>
         </div>
-        <button className="btn btn-primary" data-testid="button-consolidate-swot" onClick={handleConsolidate} disabled={consolidating}>
-          {consolidating ? <><Loader2 size={14} className="spinner" /> Consolidating...</> : <><RefreshCw size={14} /> {hasConsolidated ? 'Re-consolidate' : 'Consolidate SWOT'}</>}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {allCites.length > 0 && (
+            <button className="btn btn-ghost" onClick={() => setSourcesOpen(!sourcesOpen)} title={sourcesOpen ? 'Close sources' : 'Open sources'}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+              <BookOpen size={14} />
+              Sources
+              <span style={{ background: 'var(--sia-navy)', color: 'white', borderRadius: '999px', fontSize: '10px', fontWeight: 700, padding: '1px 6px', minWidth: '18px', textAlign: 'center' }}>
+                {Object.keys(allEntitySources).length || allCites.length}
+              </span>
+            </button>
+          )}
+          <button className="btn btn-primary" data-testid="button-consolidate-swot" onClick={handleConsolidate} disabled={consolidating}>
+            {consolidating ? <><Loader2 size={14} className="spinner" /> Consolidating...</> : <><RefreshCw size={14} /> {hasConsolidated ? 'Re-consolidate' : 'Consolidate SWOT'}</>}
+          </button>
+        </div>
       </div>
 
       {!hasConsolidated && (
@@ -128,7 +205,7 @@ export default function SwotPage() {
                         <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '10px 12px', background: 'rgba(255,255,255,0.6)', borderRadius: 'var(--radius)', border: '1px solid rgba(255,255,255,0.8)' }}>
                           {sigStyle && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: sigStyle.dot, flexShrink: 0, marginTop: '5px' }} />}
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '13px', color: sq.color, lineHeight: 1.5 }}>{text}</div>
+                            <div style={{ fontSize: '13px', color: sq.color, lineHeight: 1.5 }}><CitedText text={text} onCiteClick={handleCiteClick} /></div>
                             {(sig || pillar) && (
                               <div style={{ display: 'flex', gap: '6px', marginTop: '5px' }}>
                                 {sig && <span style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', color: sigStyle?.color, padding: '1px 6px', borderRadius: '999px', background: sigStyle?.bg, border: `1px solid ${sigStyle?.border}` }}>{sig}</span>}
@@ -213,7 +290,7 @@ export default function SwotPage() {
                           {((p.swot as any)?.[sq.key] || []).length > 0 ? (
                             <ul style={{ paddingLeft: '14px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                               {(p.swot as any)[sq.key].map((item: string, i: number) => (
-                                <li key={i} style={{ fontSize: '11px', color: sq.color, lineHeight: 1.4 }}>{item}</li>
+                                <li key={i} style={{ fontSize: '11px', color: sq.color, lineHeight: 1.4 }}><CitedText text={item} onCiteClick={handleCiteClick} /></li>
                               ))}
                             </ul>
                           ) : <div style={{ fontSize: '11px', color: sq.color, opacity: 0.4 }}>None</div>}
@@ -228,5 +305,6 @@ export default function SwotPage() {
         </div>
       )}
     </div>
+  </div>
   )
 }

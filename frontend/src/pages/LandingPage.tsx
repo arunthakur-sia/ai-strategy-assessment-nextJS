@@ -2,7 +2,15 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore'
 import { projectsApi } from '../api'
-import { Plus, Lock, ArrowRight, Building2, Loader2 } from 'lucide-react'
+import { Plus, Lock, ArrowRight, Building2, Loader2, Trash2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
+
+const ENTITY_TYPES = [
+  { value: 'government', label: 'Government Ministry / Authority' },
+  { value: 'holding', label: 'Holding Company' },
+  { value: 'corporate', label: 'Corporate / Private Sector' },
+  { value: 'ngo', label: 'NGO / Non-Profit' },
+  { value: 'other', label: 'Other' },
+]
 
 export default function LandingPage() {
   const navigate = useNavigate()
@@ -16,6 +24,15 @@ export default function LandingPage() {
     name: '', entityName: '', entityType: 'government', consultantName: '', password: '', confirmPassword: ''
   })
   const [unlockPassword, setUnlockPassword] = useState('')
+  // Subsidiary entities added during project creation
+  const [subsidiaries, setSubsidiaries] = useState<{ name: string; type: string }[]>([])
+  const [showSubsidiaries, setShowSubsidiaries] = useState(false)
+
+  // Delete project state
+  const [deletingProject, setDeletingProject] = useState<any>(null)
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   useEffect(() => { loadProjects() }, [])
 
@@ -26,13 +43,27 @@ export default function LandingPage() {
     } catch (e) {}
   }
 
+  function addSubsidiary() {
+    setSubsidiaries(s => [...s, { name: '', type: 'corporate' }])
+    setShowSubsidiaries(true)
+  }
+
+  function removeSubsidiary(index: number) {
+    setSubsidiaries(s => s.filter((_, i) => i !== index))
+  }
+
+  function updateSubsidiary(index: number, field: 'name' | 'type', value: string) {
+    setSubsidiaries(s => s.map((item, i) => i === index ? { ...item, [field]: value } : item))
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return }
     if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
+    const validSubs = subsidiaries.filter(s => s.name.trim())
     setLoading(true); setError('')
     try {
-      const res = await projectsApi.create(form)
+      const res = await projectsApi.create({ ...form, entities: validSubs })
       const proj = await projectsApi.get(res.data.id)
       setProject(proj.data)
       setAuthenticated(true)
@@ -56,13 +87,21 @@ export default function LandingPage() {
     } finally { setLoading(false) }
   }
 
-  const entityTypes = [
-    { value: 'government', label: 'Government Ministry / Authority' },
-    { value: 'holding', label: 'Holding Company' },
-    { value: 'corporate', label: 'Corporate / Private Sector' },
-    { value: 'ngo', label: 'NGO / Non-Profit' },
-    { value: 'other', label: 'Other' },
-  ]
+  async function handleDeleteConfirm(e: React.FormEvent) {
+    e.preventDefault()
+    if (!deletingProject) return
+    setDeleteLoading(true); setDeleteError('')
+    try {
+      // Unlock first to satisfy requireSession, then delete
+      await projectsApi.unlock(deletingProject.id, deletePassword)
+      await projectsApi.delete(deletingProject.id)
+      setDeletingProject(null)
+      setDeletePassword('')
+      await loadProjects()
+    } catch (e: any) {
+      setDeleteError(e.response?.data?.error || 'Failed to delete project. Check your password.')
+    } finally { setDeleteLoading(false) }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--sia-cool-black)', display: 'flex', flexDirection: 'column' }}>
@@ -90,7 +129,7 @@ export default function LandingPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {[
                 ['8-Pillar Assessment Framework', 'AI-scored with evidence from your documents'],
-                ['Flexible Strategy Builder', 'Vision → Objectives → KPIs → Initiatives → Projects'],
+                ['Multi-Entity Parallel Assessment', 'Assess all holding company subsidiaries simultaneously'],
                 ['5 Export-Ready Deliverables', 'D1–D5 reports in structured markdown format'],
               ].map(([title, desc]) => (
                 <div key={title} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
@@ -107,7 +146,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div style={{ width: '480px', background: 'rgba(255,255,255,0.03)', borderLeft: '1px solid rgba(255,255,255,0.06)', padding: '48px 40px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto' }}>
+        <div style={{ width: '520px', background: 'rgba(255,255,255,0.03)', borderLeft: '1px solid rgba(255,255,255,0.06)', padding: '48px 40px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto' }}>
 
           {mode === 'list' && (
             <>
@@ -116,7 +155,7 @@ export default function LandingPage() {
                 <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)' }}>Select an existing project or start a new assessment</p>
               </div>
 
-              <button className="btn btn-primary btn-lg" data-testid="button-new-project" style={{ justifyContent: 'center', gap: '10px' }} onClick={() => { setMode('create'); setError('') }}>
+              <button className="btn btn-primary btn-lg" data-testid="button-new-project" style={{ justifyContent: 'center', gap: '10px' }} onClick={() => { setMode('create'); setError(''); setSubsidiaries([]); setShowSubsidiaries(false) }}>
                 <Plus size={18} />
                 New Assessment Project
               </button>
@@ -126,23 +165,35 @@ export default function LandingPage() {
                   <div style={{ fontSize: '11px', color: 'var(--sia-medium-gray)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px', fontWeight: 600 }}>Recent Projects</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {projects.map((p: any) => (
-                      <button key={p.id} data-testid={`button-project-${p.id}`} onClick={() => { setSelectedProject(p); setMode('unlock'); setError('') }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-lg)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,222,204,0.08)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,222,204,0.3)' }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.08)' }}
-                      >
-                        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(0,222,204,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <Building2 size={16} color="var(--sia-teal)" />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '14px', fontWeight: 600, color: 'white', marginBottom: '2px' }}>{p.entityName}</div>
-                          <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)' }}>{p.name}</div>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                          <Lock size={13} color="var(--sia-medium-gray)" />
-                          <span style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>{new Date(p.updatedAt).toLocaleDateString()}</span>
-                        </div>
-                      </button>
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button data-testid={`button-project-${p.id}`} onClick={() => { setSelectedProject(p); setMode('unlock'); setError('') }}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-lg)', cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,222,204,0.08)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,222,204,0.3)' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.08)' }}
+                        >
+                          <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(0,222,204,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Building2 size={16} color="var(--sia-teal)" />
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'white', marginBottom: '2px' }}>{p.entityName}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)' }}>{p.name}</div>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                            <Lock size={13} color="var(--sia-medium-gray)" />
+                            <span style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>{new Date(p.updatedAt).toLocaleDateString()}</span>
+                          </div>
+                        </button>
+                        <button
+                          data-testid={`button-delete-project-${p.id}`}
+                          title="Delete project"
+                          onClick={() => { setDeletingProject(p); setDeletePassword(''); setDeleteError('') }}
+                          style={{ flexShrink: 0, width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-lg)', cursor: 'pointer', transition: 'all 0.15s' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.25)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(239,68,68,0.5)' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.1)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(239,68,68,0.25)' }}
+                        >
+                          <Trash2 size={15} color="#EF4444" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -164,7 +215,7 @@ export default function LandingPage() {
                   ← Back
                 </button>
                 <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '22px', fontWeight: 700, color: 'white', marginBottom: '6px' }}>New Project</h2>
-                <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)' }}>Set up your assessment engagement</p>
+                <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)' }}>Set up your assessment engagement — add one entity or an entire holding structure</p>
               </div>
 
               <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -175,20 +226,69 @@ export default function LandingPage() {
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }} />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label" style={{ color: 'var(--sia-medium-gray)' }}>Entity Name</label>
-                  <input className="form-input" data-testid="input-entity-name" placeholder="e.g. Ministry of Commerce and Industry" value={form.entityName}
-                    onChange={e => setForm(f => ({...f, entityName: e.target.value}))} required
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }} />
+                {/* Primary entity — holding company or single entity */}
+                <div style={{ padding: '16px', background: 'rgba(0,222,204,0.06)', border: '1px solid rgba(0,222,204,0.2)', borderRadius: 'var(--radius-lg)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--sia-teal)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
+                    Primary Entity {subsidiaries.length > 0 ? '(Holding Company)' : ''}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ color: 'var(--sia-medium-gray)' }}>Entity Name</label>
+                      <input className="form-input" data-testid="input-entity-name" placeholder="e.g. Ministry of Commerce and Industry" value={form.entityName}
+                        onChange={e => setForm(f => ({...f, entityName: e.target.value}))} required
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ color: 'var(--sia-medium-gray)' }}>Entity Type</label>
+                      <select className="form-input form-select" data-testid="select-entity-type" value={form.entityType}
+                        onChange={e => setForm(f => ({...f, entityType: e.target.value}))}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }}>
+                        {ENTITY_TYPES.map(t => <option key={t.value} value={t.value} style={{ background: '#173044' }}>{t.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label" style={{ color: 'var(--sia-medium-gray)' }}>Entity Type</label>
-                  <select className="form-input form-select" data-testid="select-entity-type" value={form.entityType}
-                    onChange={e => setForm(f => ({...f, entityType: e.target.value}))}
-                    style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }}>
-                    {entityTypes.map(t => <option key={t.value} value={t.value} style={{ background: '#173044' }}>{t.label}</option>)}
-                  </select>
+                {/* Subsidiaries / additional entities */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: subsidiaries.length > 0 ? '10px' : '0' }}>
+                    <button type="button" onClick={() => setShowSubsidiaries(v => !v)} style={{ background: 'none', border: 'none', color: 'var(--sia-teal)', cursor: 'pointer', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', padding: 0 }}>
+                      {showSubsidiaries ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      Subsidiaries / Additional Entities
+                      {subsidiaries.length > 0 && <span style={{ background: 'rgba(0,222,204,0.2)', color: 'var(--sia-teal)', padding: '1px 8px', borderRadius: '999px', fontSize: '11px' }}>{subsidiaries.length}</span>}
+                    </button>
+                    <button type="button" onClick={addSubsidiary} style={{ background: 'rgba(0,222,204,0.1)', border: '1px solid rgba(0,222,204,0.3)', color: 'var(--sia-teal)', borderRadius: 'var(--radius)', padding: '4px 10px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Plus size={12} /> Add Entity
+                    </button>
+                  </div>
+
+                  {showSubsidiaries && subsidiaries.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {subsidiaries.map((sub, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius)' }}>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <input className="form-input" placeholder={`Subsidiary ${idx + 1} name`} value={sub.name}
+                              onChange={e => updateSubsidiary(idx, 'name', e.target.value)}
+                              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', fontSize: '13px', padding: '6px 10px' }} />
+                            <select className="form-input form-select" value={sub.type}
+                              onChange={e => updateSubsidiary(idx, 'type', e.target.value)}
+                              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', fontSize: '12px', padding: '5px 10px' }}>
+                              {ENTITY_TYPES.map(t => <option key={t.value} value={t.value} style={{ background: '#173044' }}>{t.label}</option>)}
+                            </select>
+                          </div>
+                          <button type="button" onClick={() => removeSubsidiary(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '4px', flexShrink: 0 }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {showSubsidiaries && subsidiaries.length === 0 && (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--sia-medium-gray)', fontSize: '13px', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 'var(--radius)' }}>
+                      Click "Add Entity" to add subsidiaries for parallel assessment
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -216,7 +316,10 @@ export default function LandingPage() {
                 {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: '13px', color: 'var(--sia-red)' }}>{error}</div>}
 
                 <button className="btn btn-primary btn-lg" data-testid="button-create-project" type="submit" disabled={loading} style={{ justifyContent: 'center', marginTop: '8px' }}>
-                  {loading ? <><Loader2 size={16} className="spinner" /> Creating...</> : <>Create Project <ArrowRight size={16} /></>}
+                  {loading
+                    ? <><Loader2 size={16} className="spinner" /> Creating{subsidiaries.filter(s => s.name.trim()).length > 0 ? ` ${subsidiaries.filter(s => s.name.trim()).length + 1} entities` : ''}...</>
+                    : <>Create Project <ArrowRight size={16} /></>
+                  }
                 </button>
               </form>
             </>
@@ -256,6 +359,57 @@ export default function LandingPage() {
           )}
         </div>
       </div>
+
+      {/* Delete project confirmation modal */}
+      {deletingProject && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget) { setDeletingProject(null); setDeletePassword(''); setDeleteError('') } }}>
+          <div style={{ background: 'var(--sia-dark)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-xl)', padding: '32px', width: '420px', maxWidth: '90vw' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={20} color="#EF4444" />
+              </div>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: 'white' }}>Delete Project</div>
+                <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', marginTop: '2px' }}>This action cannot be undone</div>
+              </div>
+            </div>
+
+            <div style={{ padding: '12px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius)', marginBottom: '20px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: 'white' }}>{deletingProject.entityName}</div>
+              <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', marginTop: '2px' }}>{deletingProject.name}</div>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)', marginBottom: '20px', lineHeight: 1.6 }}>
+              This will permanently delete the project, all associated documents, assessments, and SiaGPT collections. Enter the project password to confirm.
+            </p>
+
+            <form onSubmit={handleDeleteConfirm} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ color: 'var(--sia-medium-gray)' }}>Project Password</label>
+                <input className="form-input" type="password" placeholder="Enter project password to confirm" value={deletePassword}
+                  onChange={e => setDeletePassword(e.target.value)} required autoFocus
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1.5px solid rgba(255,255,255,0.1)', color: 'white' }} />
+              </div>
+
+              {deleteError && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: '13px', color: 'var(--sia-red)' }}>{deleteError}</div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                <button type="button" onClick={() => { setDeletingProject(null); setDeletePassword(''); setDeleteError('') }}
+                  style={{ flex: 1, padding: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 'var(--radius)', color: 'var(--sia-medium-gray)', cursor: 'pointer', fontSize: '14px', fontWeight: 600 }}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={deleteLoading || !deletePassword}
+                  style={{ flex: 1, padding: '10px', background: deleteLoading || !deletePassword ? 'rgba(239,68,68,0.3)' : '#EF4444', border: 'none', borderRadius: 'var(--radius)', color: 'white', cursor: deleteLoading || !deletePassword ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  {deleteLoading ? <><Loader2 size={15} className="spinner" /> Deleting...</> : <><Trash2 size={15} /> Delete Project</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

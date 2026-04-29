@@ -1,6 +1,8 @@
-import { BookOpen } from 'lucide-react'
+import { BookOpen, Pencil, Check, X, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
+import EntityBanner from '../components/EntityBanner'
+import { projectsApi } from '../api'
 
 const BANDS = [
   { key: 'critical',   range: '1.0 – 2.0', label: 'Critical',   bg: '#FEF2F2', color: '#991B1B' },
@@ -373,12 +375,93 @@ function getBand(score: number) {
   return BANDS[0]
 }
 
+type RubricOverrides = Record<string, Record<string, Record<string, string>>>
+
+function getDescription(pillarId: string, elName: string, bandKey: string, overrides: RubricOverrides): string {
+  const ov = overrides?.[pillarId]?.[elName]?.[bandKey]
+  if (ov !== undefined) return ov
+  const pillar = PILLARS.find(p => p.id === pillarId)
+  const el = pillar?.elements.find(e => e.name === elName)
+  return (el as any)?.[bandKey] ?? ''
+}
+
 export default function RubricPage() {
-  const { project } = useStore()
+  const { project, activeEntityId, updateRubric } = useStore()
   const [activePillarId, setActivePillarId] = useState('P1')
+  const [editMode, setEditMode] = useState(false)
+  const [editedRubric, setEditedRubric] = useState<RubricOverrides>({})
+  const [isSaving, setIsSaving] = useState(false)
 
   const pillar = PILLARS.find(p => p.id === activePillarId)!
-  const projectPillars = project?.assessment?.pillars || {}
+  const entities = project?.entities || []
+  const activeEntity = activeEntityId ? entities.find((e: any) => e.id === activeEntityId) : null
+  const projectPillars = (activeEntity ? activeEntity.assessment?.pillars : project?.assessment?.pillars) || {}
+  const savedRubric: RubricOverrides = ((project as any)?.rubric as RubricOverrides) || {}
+  const activeOverrides = editMode ? editedRubric : savedRubric
+
+  function handleEdit() {
+    // Seed edit state with fully resolved content (defaults merged with any saved overrides)
+    // so saving preserves all cells, not just ones previously touched.
+    const seed: RubricOverrides = {}
+    for (const p of PILLARS) {
+      seed[p.id] = {}
+      for (const el of p.elements) {
+        seed[p.id][el.name] = {}
+        for (const band of BANDS) {
+          seed[p.id][el.name][band.key] = getDescription(p.id, el.name, band.key, savedRubric)
+        }
+      }
+    }
+    setEditedRubric(seed)
+    setEditMode(true)
+  }
+
+  function handleCellChange(pId: string, elName: string, bandKey: string, value: string) {
+    setEditedRubric(prev => ({
+      ...prev,
+      [pId]: {
+        ...(prev[pId] || {}),
+        [elName]: {
+          ...((prev[pId] || {})[elName] || {}),
+          [bandKey]: value,
+        }
+      }
+    }))
+  }
+
+  async function handleSave() {
+    if (!project) return
+    setIsSaving(true)
+    try {
+      await projectsApi.saveRubric(project.id, editedRubric)
+      updateRubric(editedRubric)
+      setEditMode(false)
+    } catch (err) {
+      console.error('Failed to save rubric', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function handleCancel() {
+    setEditedRubric({})
+    setEditMode(false)
+  }
+
+  async function handleReset() {
+    if (!project) return
+    setIsSaving(true)
+    try {
+      await projectsApi.saveRubric(project.id, {})
+      updateRubric({})
+      setEditedRubric({})
+      setEditMode(false)
+    } catch (err) {
+      console.error('Failed to reset rubric', err)
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--sia-bg)' }}>
@@ -393,6 +476,11 @@ export default function RubricPage() {
             <span style={{ fontFamily: 'var(--font-display)', fontSize: '15px', fontWeight: 700, color: 'var(--sia-navy)' }}>Grading Rubric</span>
           </div>
           <p style={{ fontSize: '11px', color: 'var(--sia-medium-gray)', margin: '4px 0 0', lineHeight: 1.4 }}>5-band scoring criteria for all 8 pillars</p>
+          {entities.length > 0 && (
+            <div style={{ marginTop: '8px' }}>
+              <EntityBanner compact />
+            </div>
+          )}
         </div>
         <div style={{ padding: '0 0 12px' }}>
           <div style={{ padding: '4px 16px 8px', fontSize: '10px', fontWeight: 600, color: 'var(--sia-medium-gray)', textTransform: 'uppercase', letterSpacing: '1px' }}>Pillars</div>
@@ -435,6 +523,25 @@ export default function RubricPage() {
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '20px', fontWeight: 700, color: 'var(--sia-navy)', margin: 0 }}>{pillar.name}</h1>
             <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)', margin: '2px 0 0' }}>{pillar.elements.length} assessment elements · 5 scoring bands</p>
           </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {!editMode ? (
+              <button onClick={handleEdit} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'var(--sia-teal)', color: 'white', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                <Pencil size={13} /> Edit Rubric
+              </button>
+            ) : (
+              <>
+                <button onClick={handleReset} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'transparent', color: 'var(--sia-medium-gray)', border: '1px solid var(--sia-border)', borderRadius: '7px', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                  <RotateCcw size={13} /> Reset
+                </button>
+                <button onClick={handleCancel} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'transparent', color: '#374151', border: '1px solid var(--sia-border)', borderRadius: '7px', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                  <X size={13} /> Cancel
+                </button>
+                <button onClick={handleSave} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: '#059669', color: 'white', border: 'none', borderRadius: '7px', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 600 }}>
+                  <Check size={13} /> {isSaving ? 'Saving…' : 'Save'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Band legend */}
@@ -450,7 +557,7 @@ export default function RubricPage() {
         {pillar.elements.map((el, elIdx) => {
           const projectPillar = projectPillars[pillar.id]
           const projectEl = projectPillar?.elements?.find((e: any) => e.name === el.name)
-          const elScore = projectEl?.aiScore || projectEl?.score
+          const elScore = projectEl?.manualScore ?? projectEl?.aiScore ?? null
           const elBand = elScore ? getBand(elScore) : null
 
           return (
@@ -474,7 +581,15 @@ export default function RubricPage() {
                       <span style={{ fontSize: '10px', fontWeight: 700, color: band.color, whiteSpace: 'nowrap' }}>{band.range}</span>
                       <span style={{ fontSize: '10px', fontWeight: 700, color: band.color }}> · {band.label}</span>
                     </div>
-                    <p style={{ fontSize: '11px', color: '#374151', lineHeight: 1.5, margin: 0 }}>{(el as any)[band.key]}</p>
+                    {editMode ? (
+                      <textarea
+                        value={getDescription(pillar.id, el.name, band.key, editedRubric)}
+                        onChange={e => handleCellChange(pillar.id, el.name, band.key, e.target.value)}
+                        style={{ fontSize: '11px', color: '#374151', lineHeight: 1.5, width: '100%', border: '1px solid var(--sia-teal)', borderRadius: '4px', padding: '4px 6px', resize: 'vertical', minHeight: '80px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                      />
+                    ) : (
+                      <p style={{ fontSize: '11px', color: '#374151', lineHeight: 1.5, margin: 0 }}>{getDescription(pillar.id, el.name, band.key, activeOverrides)}</p>
+                    )}
                   </div>
                 ))}
               </div>

@@ -135,6 +135,13 @@ export const log = {
     console.log()
   },
 
+  rawResponse(raw: string, context?: string) {
+    divider(BLUE, `[siagpt] ← RAW RESPONSE  (${context ?? 'LLM Call'})  [${raw.length} bytes]`)
+    raw.split('\n').forEach(l => console.log(`  ${l}`))
+    console.log(`  ${ts()}`)
+    console.log()
+  },
+
   messageResponse(raw: string, chosenEvent: string, context?: string) {
     divider(GREEN, `[siagpt] ← Response  (${context ?? 'LLM Call'})  event=${chosenEvent}`)
     const preview = raw.length > 1500

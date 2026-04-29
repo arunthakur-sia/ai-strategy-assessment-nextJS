@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useStore } from '../store/useStore'
 import { projectsApi, aiApi } from '../api'
+import { CitedText, type Citation } from '../components/CitedText'
 import { Play, CheckCircle, Loader2, ChevronDown, ChevronUp, Edit3, Save, X, MessageSquare, AlertCircle, Send, BarChart2, BookOpen, RefreshCw, ExternalLink } from 'lucide-react'
 
 const PILLAR_COLORS: Record<string, string> = { P1:'#00DECC',P2:'#077C84',P3:'#10B981',P4:'#3B82F6',P5:'#8B5CF6',P6:'#F59E0B',P7:'#EF4444',P8:'#EC4899' }
@@ -125,8 +128,8 @@ const STARTER_PROMPTS = [
 ]
 
 export default function AssessmentPage() {
-  const { project, setProject, activePillar, setActivePillar, getRag } = useStore()
-  const [running, setRunning] = useState(false)
+  const { project, setProject, activePillar, setActivePillar, getRag, activeEntityId, setSourcesOpen, setActiveSourceNum,
+    assessmentRunning, setAssessmentRunning, assessmentRunningPillars, setAssessmentRunningPillars, updateAssessmentRunningPillar } = useStore()
   const [streamText, setStreamText] = useState('')
   const [assessError, setAssessError] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState({ summary: true, elements: true, swot: false, questions: true, benchmarks: false, chat: false })
@@ -140,30 +143,49 @@ export default function AssessmentPage() {
   const [loadingBenchmarks, setLoadingBenchmarks] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const [selectedPillars, setSelectedPillars] = useState<Set<string>>(new Set())
-  const [runningPillars, setRunningPillars] = useState<Record<string, 'running' | 'done' | 'error'>>({})
-  const [multiRunActive, setMultiRunActive] = useState(false)
+
+  // Derived from store — persists across navigation
+  const running = assessmentRunning && Object.keys(assessmentRunningPillars).length === 0
+  const multiRunActive = assessmentRunning && Object.keys(assessmentRunningPillars).length > 0
+  const runningPillars = assessmentRunningPillars
 
   if (!project) return null
 
-  const pillars = project.assessment.pillars
+  const activeEntity = activeEntityId ? (project.entities || []).find((e: any) => e.id === activeEntityId) : null
+  const pillars = activeEntity ? activeEntity.assessment.pillars : project.assessment.pillars
+  const effectiveDocuments: any[] = activeEntity ? (activeEntity.documents || []) : (project.documents || [])
   const pillar = (pillars as any)[activePillar]
 
   useEffect(() => {
     setChatMessages(pillar?.chatHistory || [])
     setInterviewTab('leadership')
     setExpandedQuestions({})
-  }, [activePillar])
+    setActiveSourceNum(null)
+  }, [activePillar, activeEntityId])
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chatMessages])
 
+  async function savePillar(data: any) {
+    if (activeEntity) {
+      await projectsApi.updateEntityPillar(project.id, activeEntity.id, activePillar, data)
+    } else {
+      await projectsApi.updatePillar(project.id, activePillar, data)
+    }
+    const res = await projectsApi.get(project.id)
+    setProject(res.data)
+  }
+
   async function runAssessment() {
-    if (project.documents.length === 0) {
-      setAssessError('No documents uploaded. Go to Project Setup and upload at least one document before running an assessment.')
+    if (effectiveDocuments.length === 0) {
+      setAssessError(`No documents uploaded${activeEntity ? ` for ${activeEntity.name}` : ''}. Upload documents first before running an assessment.`)
       return
     }
-    setRunning(true); setStreamText(''); setAssessError(null)
+    setAssessmentRunning(true); setAssessmentRunningPillars({}); setStreamText(''); setAssessError(null)
     try {
-      for await (const data of aiApi.assessPillarStream(project.id, activePillar)) {
+      const stream = activeEntity
+        ? aiApi.assessEntityPillarStream(project.id, activeEntity.id, activePillar)
+        : aiApi.assessPillarStream(project.id, activePillar)
+      for await (const data of stream) {
         if (data.chunk) setStreamText((prev: string) => prev + data.chunk)
         if (data.done) {
           const res = await projectsApi.get(project.id)
@@ -173,21 +195,19 @@ export default function AssessmentPage() {
         if (data.error) { setAssessError(data.error); break }
       }
     } catch (e: any) { setAssessError('Assessment failed: ' + e.message) }
-    setRunning(false)
+    setAssessmentRunning(false)
   }
 
   async function saveSummary() {
     const updated = { ...pillar, execSummary: { ...pillar.execSummary, edited: summaryEdit, useEdited: true } }
-    await projectsApi.updatePillar(project.id, activePillar, updated)
-    const res = await projectsApi.get(project.id); setProject(res.data)
+    await savePillar(updated)
     setEditingSummary(false)
   }
 
   async function saveElementNote(elemIdx: number, field: string, value: any) {
     const elements = [...pillar.elements]
     elements[elemIdx] = { ...elements[elemIdx], [field]: value }
-    await projectsApi.updatePillar(project.id, activePillar, { elements })
-    const res = await projectsApi.get(project.id); setProject(res.data)
+    await savePillar({ elements })
   }
 
   async function updateFinalScore() {
@@ -199,8 +219,7 @@ export default function AssessmentPage() {
     if (manual > 0) { sum += manual * 1.2; count += 1.2 }
     if (interview > 0) { sum += interview; count++ }
     const final = count > 0 ? Math.min(5, Math.max(1, sum / count)) : null
-    await projectsApi.updatePillar(project.id, activePillar, { finalScore: final ? parseFloat(final.toFixed(2)) : null })
-    const res = await projectsApi.get(project.id); setProject(res.data)
+    await savePillar({ finalScore: final ? parseFloat(final.toFixed(2)) : null })
   }
 
   async function sendChat() {
@@ -223,8 +242,7 @@ export default function AssessmentPage() {
     } catch (e) {}
     const finalHistory = [...newMessages, { role: 'assistant', content: aiText, timestamp: new Date().toISOString() }]
     try {
-      await projectsApi.updatePillar(project.id, activePillar, { chatHistory: finalHistory })
-      const res = await projectsApi.get(project.id); setProject(res.data)
+      await savePillar({ chatHistory: finalHistory })
     } catch (e) {}
     setChatStreaming(false)
   }
@@ -261,27 +279,46 @@ export default function AssessmentPage() {
   async function runMultipleAssessments() {
     const ids = Array.from(selectedPillars)
     if (ids.length === 0) return
-    if (project.documents.length === 0) {
-      setAssessError('No documents uploaded. Go to Project Setup and upload at least one document before running assessments.')
+    if (effectiveDocuments.length === 0) {
+      setAssessError(`No documents uploaded${activeEntity ? ` for ${activeEntity.name}` : ''}. Upload documents before running assessments.`)
       return
     }
-    setMultiRunActive(true)
+    setAssessmentRunning(true)
     setAssessError(null)
     const initial: Record<string, 'running' | 'done' | 'error'> = {}
     ids.forEach(id => { initial[id] = 'running' })
-    setRunningPillars(initial)
+    setAssessmentRunningPillars(initial)
 
     try {
-      for await (const data of aiApi.assessBatchStream(project.id, ids)) {
+      const stream = activeEntity
+        ? aiApi.assessEntityBatchStream(project.id, activeEntity.id, ids)
+        : aiApi.assessBatchStream(project.id, ids)
+      for await (const data of stream) {
+        if (data.pillarId && data.retrying) {
+          // keep showing spinner during retry — no state change needed
+        }
         if (data.pillarId && data.progress) {
-          setRunningPillars(prev => ({ ...prev, [data.pillarId]: 'done' }))
+          updateAssessmentRunningPillar(data.pillarId, 'done')
         }
         if (data.pillarId && data.error) {
-          setRunningPillars(prev => ({ ...prev, [data.pillarId]: 'error' }))
+          updateAssessmentRunningPillar(data.pillarId, 'error')
         }
         if (data.done) {
           const res = await projectsApi.get(project.id)
           setProject(res.data)
+          if (data.failedPillarIds?.length > 0) {
+            const projectData = res.data
+            const pillarMap = activeEntity
+              ? (projectData?.entities || []).find((e: any) => e.id === activeEntity.id)?.assessment?.pillars
+              : projectData?.assessment?.pillars
+            const names = (data.failedPillarIds as string[]).map((id: string) => {
+              const p = pillarMap?.[id]
+              return p ? `${id} · ${p.name}` : id
+            }).join(', ')
+            setAssessError(
+              `${data.failedPillarIds.length} pillar${data.failedPillarIds.length > 1 ? 's' : ''} failed after retries: ${names}. Select them individually in the left panel and click "Run AI Assessment" to retry manually.`
+            )
+          }
         }
         if (data.error && !data.pillarId) {
           setAssessError(data.error)
@@ -290,7 +327,8 @@ export default function AssessmentPage() {
     } catch (e: any) {
       setAssessError('Batch assessment failed: ' + e.message)
     }
-    setMultiRunActive(false)
+    setAssessmentRunning(false)
+    setAssessmentRunningPillars({})
   }
 
   const rag = getRag(pillar.finalScore)
@@ -315,12 +353,12 @@ export default function AssessmentPage() {
   const resources = RESOURCES_BY_PILLAR[activePillar] || []
   function isDocUploaded(docCode?: string) {
     if (!docCode) return false
-    return project.documents.some((d: any) =>
+    return effectiveDocuments.some((d: any) =>
       d.name?.toLowerCase().includes(docCode.toLowerCase()) || d.label?.toLowerCase().includes(docCode.toLowerCase())
     )
   }
 
-  function renderBullets(text: string) {
+  function renderBullets(text: string, onCiteClick?: (c: Citation) => void) {
     if (!text) return null
     const lines = text.split('\n').filter(Boolean)
     return (
@@ -328,7 +366,9 @@ export default function AssessmentPage() {
         {lines.map((line, i) => (
           <li key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.55 }}>
             <span style={{ color: 'var(--sia-teal)', flexShrink: 0, fontWeight: 700, marginTop: '1px' }}>•</span>
-            <span>{line.replace(/^•\s*/, '')}</span>
+            {onCiteClick
+              ? <CitedText text={line.replace(/^•\s*/, '')} onCiteClick={onCiteClick} />
+              : <span>{line.replace(/^•\s*/, '')}</span>}
           </li>
         ))}
       </ul>
@@ -336,7 +376,7 @@ export default function AssessmentPage() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', position: 'relative' }}>
 
       {/* Pillar Navigation */}
       <div style={{ width: '220px', background: 'white', borderRight: '1px solid rgba(69,85,105,0.1)', overflow: 'auto', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
@@ -399,7 +439,24 @@ export default function AssessmentPage() {
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '28px 32px' }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '28px 32px', paddingRight: '32px' }}>
+
+        {/* Entity context banner */}
+        {activeEntity && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 14px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '8px', marginBottom: '16px' }}>
+            <div style={{ width: '22px', height: '22px', borderRadius: '5px', background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: '11px' }}>🏢</span>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#6D28D9' }}>{activeEntity.name}</span>
+              <span style={{ fontSize: '12px', color: '#7C3AED', marginLeft: '6px' }}>· Subsidiary Entity View</span>
+            </div>
+            <span style={{ fontSize: '11px', color: '#8B5CF6', background: 'rgba(139,92,246,0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+              {effectiveDocuments.length} doc{effectiveDocuments.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
@@ -423,14 +480,14 @@ export default function AssessmentPage() {
 
         {/* Document Status Banner — non-collapsible */}
         {(() => {
-          const noDocuments = !project.documents || project.documents.length === 0
-          const poorExtraction = project.documents?.filter((d: any) => !d.extractedText || d.extractedText.length < 100) || []
+          const noDocuments = effectiveDocuments.length === 0
+          const poorExtraction = effectiveDocuments.filter((d: any) => !d.extractedText || d.extractedText.length < 100)
           if (noDocuments) return (
             <div data-testid="pillar-doc-banner-empty" style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 16px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', marginBottom: '16px' }}>
               <AlertCircle size={15} color="#D97706" style={{ flexShrink: 0, marginTop: '1px' }} />
               <div style={{ fontSize: '13px', color: '#92400E', lineHeight: 1.5 }}>
-                <strong>No documents uploaded.</strong> The AI requires source documents to assess this pillar.{' '}
-                <a href="/app/setup" style={{ color: '#D97706', fontWeight: 600 }}>Upload in Project Setup →</a>
+                <strong>No documents uploaded{activeEntity ? ` for ${activeEntity.name}` : ''}.</strong> The AI requires source documents to assess this pillar.{' '}
+                {!activeEntity && <a href="/app/setup" style={{ color: '#D97706', fontWeight: 600 }}>Upload in Project Setup →</a>}
               </div>
             </div>
           )
@@ -509,8 +566,8 @@ export default function AssessmentPage() {
                 <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                   <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: mi.priority === 'high' ? '#FEE2E2' : mi.priority === 'medium' ? '#FEF3C7' : '#F1F5F9', color: mi.priority === 'high' ? '#991B1B' : mi.priority === 'medium' ? '#92400E' : 'var(--sia-cool-gray)', textTransform: 'uppercase', flexShrink: 0, marginTop: '1px' }}>{mi.priority}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400E', marginBottom: '2px' }}>{mi.item}</div>
-                    <div style={{ fontSize: '11px', color: '#B45309' }}>{mi.impact} — <em>Suggested source: {mi.suggestedSource}</em></div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400E', marginBottom: '2px' }}><CitedText text={mi.item} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></div>
+                    <div style={{ fontSize: '11px', color: '#B45309' }}><CitedText text={mi.impact} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /> — <em>Suggested source: <CitedText text={mi.suggestedSource} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></em></div>
                   </div>
                 </div>
               ))}
@@ -544,7 +601,7 @@ export default function AssessmentPage() {
                 </div>
               ) : pillar.execSummary?.edited ? (
                 <div>
-                  {renderBullets(pillar.execSummary.edited)}
+                  {renderBullets(pillar.execSummary.edited, c => { setActiveSourceNum(c.num); setSourcesOpen(true) })}
                   {pillar.execSummary.useEdited && <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--sia-medium-gray)', fontStyle: 'italic' }}>✏️ Edited version</div>}
                 </div>
               ) : (
@@ -613,28 +670,41 @@ export default function AssessmentPage() {
                       </div>
 
                       {/* Generated Analysis */}
-                      {el.aiAnswer && (
-                        <div>
-                          <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sia-medium-gray)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🤖 Generated Analysis</div>
-                          {renderBullets(el.aiAnswer)}
-                        </div>
-                      )}
+                      {el.aiAnswer && (() => {
+                        const lines = el.aiAnswer.split('\n').filter(Boolean)
+                        return (
+                          <div>
+                            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sia-medium-gray)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🤖 Generated Analysis</div>
+                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {lines.map((line, li) => (
+                                <li key={li} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.55 }}>
+                                  <span style={{ color: 'var(--sia-teal)', flexShrink: 0, fontWeight: 700, marginTop: '1px' }}>•</span>
+                                  <CitedText text={line.replace(/^•\s*/, '')} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} />
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )
+                      })()}
 
                       {/* Score Rationale */}
                       {el.scoreRationale && (
                         <div style={{ padding: '8px 12px', background: 'white', borderRadius: '4px', border: '1px solid rgba(69,85,105,0.1)', fontSize: '12px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}>
                           <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>📊 Score Rationale</div>
-                          {el.scoreRationale}
+                          <CitedText text={el.scoreRationale} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} />
                         </div>
                       )}
 
                       {/* Evidence Quote */}
-                      {el.evidenceQuote && el.evidenceQuote !== 'Not found in documents' && el.evidenceQuote !== 'No direct evidence found' && (
-                        <div style={{ padding: '8px 12px', background: 'white', borderRadius: '4px', borderLeft: '2px solid var(--sia-teal)', fontSize: '12px', color: 'var(--sia-cool-gray)', fontStyle: 'italic', lineHeight: 1.5 }}>
-                          <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--sia-teal)', marginBottom: '4px', fontStyle: 'normal', textTransform: 'uppercase', letterSpacing: '0.5px' }}>💬 Evidence</div>
-                          "{el.evidenceQuote.substring(0, 240)}{el.evidenceQuote.length > 240 ? '...' : ''}" <span style={{ fontStyle: 'normal', color: 'var(--sia-medium-gray)' }}>— {el.sourceDocument}</span>
-                        </div>
-                      )}
+                      {el.evidenceQuote && el.evidenceQuote !== 'Not found in documents' && el.evidenceQuote !== 'No direct evidence found' && (() => {
+                        const evText = el.evidenceQuote.substring(0, 240) + (el.evidenceQuote.length > 240 ? '...' : '')
+                        return (
+                          <div style={{ padding: '8px 12px', background: 'white', borderRadius: '4px', borderLeft: '2px solid var(--sia-teal)', fontSize: '12px', color: 'var(--sia-cool-gray)', fontStyle: 'italic', lineHeight: 1.5 }}>
+                            <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--sia-teal)', marginBottom: '4px', fontStyle: 'normal', textTransform: 'uppercase', letterSpacing: '0.5px' }}>💬 Evidence</div>
+                            "<CitedText text={evText} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} />" <span style={{ fontStyle: 'normal', color: 'var(--sia-medium-gray)' }}>— {el.sourceDocument}</span>
+                          </div>
+                        )
+                      })()}
 
                       {/* Data Gap */}
                       {el.dataGap && (
@@ -665,7 +735,7 @@ export default function AssessmentPage() {
                   {((pillar.swot as any)?.[sq.key] || []).length > 0 ? (
                     <ul style={{ paddingLeft: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       {((pillar.swot as any)[sq.key] || []).map((item: string, i: number) => (
-                        <li key={i} style={{ fontSize: '12px', color: sq.color, lineHeight: 1.5 }}>{item}</li>
+                        <li key={i} style={{ fontSize: '12px', color: sq.color, lineHeight: 1.5 }}><CitedText text={item} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></li>
                       ))}
                     </ul>
                   ) : (
@@ -705,13 +775,13 @@ export default function AssessmentPage() {
                       {interviewTab === 'leadership' && (iqData.leadership || []).map((q: string, i: number) => (
                         <div key={i} style={{ display: 'flex', gap: '10px', padding: '10px 14px', background: 'var(--sia-light-gray)', borderRadius: 'var(--radius)' }}>
                           <span style={{ fontFamily: 'var(--font-display)', fontSize: '13px', fontWeight: 700, color: 'var(--sia-teal)', flexShrink: 0 }}>{i+1}.</span>
-                          <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}>{q}</span>
+                          <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}><CitedText text={q} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></span>
                         </div>
                       ))}
                       {interviewTab === 'team' && (iqData.team || []).map((q: string, i: number) => (
                         <div key={i} style={{ display: 'flex', gap: '10px', padding: '10px 14px', background: 'var(--sia-light-gray)', borderRadius: 'var(--radius)' }}>
                           <span style={{ fontFamily: 'var(--font-display)', fontSize: '13px', fontWeight: 700, color: '#3B82F6', flexShrink: 0 }}>{i+1}.</span>
-                          <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}>{q}</span>
+                          <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}><CitedText text={q} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></span>
                         </div>
                       ))}
                       {interviewTab === 'gapFilling' && (iqData.gapFilling || []).map((item: any, i: number) => (
@@ -719,7 +789,7 @@ export default function AssessmentPage() {
                           <div style={{ fontSize: '10px', fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
                             Gap: {item.element} — {item.gap}
                           </div>
-                          <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}>{item.question}</div>
+                          <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}><CitedText text={item.question} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></div>
                         </div>
                       ))}
                       {((interviewTab === 'leadership' && !iqData.leadership?.length) ||
@@ -734,7 +804,7 @@ export default function AssessmentPage() {
                     {(iqData as string[]).map((q: string, i: number) => (
                       <div key={i} style={{ display: 'flex', gap: '10px', padding: '10px 14px', background: 'var(--sia-light-gray)', borderRadius: 'var(--radius)' }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontSize: '14px', fontWeight: 700, color: 'var(--sia-teal)', flexShrink: 0 }}>{i+1}.</span>
-                        <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}>{q}</span>
+                        <span style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }}><CitedText text={q} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} /></span>
                       </div>
                     ))}
                   </div>
@@ -872,10 +942,18 @@ export default function AssessmentPage() {
                       <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: msg.role === 'user' ? 'var(--sia-light-gray)' : 'var(--sia-navy)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: msg.role === 'user' ? 'var(--sia-cool-gray)' : 'var(--sia-teal)', flexShrink: 0, fontFamily: 'var(--font-display)' }}>
                         {msg.role === 'user' ? 'You' : 'SIA'}
                       </div>
-                      <div style={{ maxWidth: '80%', padding: '10px 14px', background: msg.role === 'user' ? 'var(--sia-light-gray)' : 'var(--sia-navy)', borderRadius: '10px', fontSize: '13px', color: msg.role === 'user' ? 'var(--sia-cool-gray)' : 'rgba(255,255,255,0.9)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                        {msg.content}
-                        {msg.streaming && <span className="streaming" />}
-                      </div>
+                      {msg.role === 'user' ? (
+                        <div style={{ maxWidth: '80%', padding: '10px 14px', background: 'var(--sia-light-gray)', borderRadius: '10px', fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                          {msg.content}
+                        </div>
+                      ) : (
+                        <div style={{ maxWidth: '85%', padding: '12px 16px', background: 'rgba(0,222,204,0.06)', border: '1px solid rgba(0,222,204,0.18)', borderRadius: '10px' }}>
+                          <div className="chat-response-body">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                          </div>
+                          {msg.streaming && <span className="streaming" />}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -912,12 +990,12 @@ export default function AssessmentPage() {
               <BookOpen size={15} color="var(--sia-teal)" />
               <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sia-navy)', fontFamily: 'var(--font-display)' }}>Source Documents Uploaded</span>
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>{project.documents?.length || 0} document{project.documents?.length !== 1 ? 's' : ''}</span>
+            <span style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>{effectiveDocuments.length || 0} document{effectiveDocuments.length !== 1 ? 's' : ''}</span>
           </div>
           <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {(project.documents || []).length === 0 ? (
-              <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', padding: '8px 0' }}>No documents uploaded. <a href="/app/setup" style={{ color: 'var(--sia-teal)' }}>Upload in Project Setup →</a></div>
-            ) : (project.documents || []).map((doc: any, i: number) => {
+            {effectiveDocuments.length === 0 ? (
+              <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', padding: '8px 0' }}>No documents uploaded{activeEntity ? ` for ${activeEntity.name}` : ''}. {!activeEntity && <a href="/app/setup" style={{ color: 'var(--sia-teal)' }}>Upload in Project Setup →</a>}</div>
+            ) : effectiveDocuments.map((doc: any, i: number) => {
               const hasText = doc.extractedText && doc.extractedText.length >= 100
               return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: hasText ? 'rgba(16,185,129,0.04)' : '#FFF7ED', borderRadius: '6px', border: `1px solid ${hasText ? 'rgba(16,185,129,0.15)' : '#FDBA74'}` }}>

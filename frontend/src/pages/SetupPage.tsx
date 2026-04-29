@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useStore } from '../store/useStore'
-import { projectsApi, documentsApi } from '../api'
-import { Upload, Trash2, FileText, CheckCircle, Loader2, Eye, X, ChevronDown, ChevronUp } from 'lucide-react'
+import type { SubsidiaryEntity } from '../store/useStore'
+import { projectsApi, documentsApi, entitiesApi, entityDocumentsApi } from '../api'
+import { Upload, Trash2, FileText, CheckCircle, Loader2, Eye, X, ChevronDown, ChevronUp, Building2, Plus, Info } from 'lucide-react'
 
 const DOC_TYPES: Record<string, any[]> = {
   mandatory: [
@@ -62,9 +63,19 @@ export default function SetupPage() {
   const [dragOver, setDragOver] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
+  // Entity document state
+  const [entityEmbeddingStatus, setEntityEmbeddingStatus] = useState<Record<string, Record<string, 'embedding' | 'complete'>>>({}) // entityId -> docName -> status
+  const [entityUploading, setEntityUploading] = useState<Record<string, boolean>>({})
+  const [expandedEntityDocs, setExpandedEntityDocs] = useState<Set<string>>(new Set())
+  const [addingEntity, setAddingEntity] = useState(false)
+  const [showAddEntityForm, setShowAddEntityForm] = useState(false)
+  const [newEntityName, setNewEntityName] = useState('')
+  const [newEntityType, setNewEntityType] = useState('corporate')
+
   if (!project) return null
 
   const hasEmbedding = Object.values(embeddingStatus).some(v => v === 'embedding')
+  const hasEntityEmbedding = Object.values(entityEmbeddingStatus).some(m => Object.values(m).some(v => v === 'embedding'))
 
   // Poll SiaGPT embedding completion while any doc is being processed
   useEffect(() => {
@@ -73,7 +84,7 @@ export default function SetupPage() {
     const poll = async () => {
       if (cancelled) return
       try {
-        const res = await documentsApi.embeddingStatus(project.id)
+        const res = await documentsApi.embeddingStatus(project!.id)
         const serverStatus = res.data.status as Record<string, number>
         if (!cancelled) {
           setEmbeddingStatus(prev => {
@@ -88,13 +99,44 @@ export default function SetupPage() {
     }
     const id = setInterval(poll, 3000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [hasEmbedding, project.id])
+  }, [hasEmbedding, project!.id])
+
+  // Poll SiaGPT embedding completion for entity documents
+  useEffect(() => {
+    if (!hasEntityEmbedding) return
+    let cancelled = false
+    const poll = async () => {
+      if (cancelled) return
+      try {
+        const currentEntities: SubsidiaryEntity[] = (project as any).entities || []
+        for (const entity of currentEntities) {
+          const entityStatus = entityEmbeddingStatus[entity.id] || {}
+          if (!Object.values(entityStatus).some(v => v === 'embedding')) continue
+          const res = await entityDocumentsApi.embeddingStatus(project!.id, entity.id)
+          const serverStatus = res.data.status as Record<string, number>
+          if (!cancelled) {
+            setEntityEmbeddingStatus(prev => {
+              const next = { ...prev, [entity.id]: { ...(prev[entity.id] || {}) } }
+              for (const [name, completion] of Object.entries(serverStatus)) {
+                if (prev[entity.id]?.[name] === 'embedding' && completion >= 1.0) {
+                  next[entity.id][name] = 'complete'
+                }
+              }
+              return next
+            })
+          }
+        }
+      } catch (e) {}
+    }
+    const id = setInterval(poll, 3000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [hasEntityEmbedding, project!.id])
 
   async function saveField(field: string, value: any) {
     setSaving(true)
     try {
       const updated = { ...project, [field]: value }
-      await projectsApi.save(project.id, { [field]: value })
+      await projectsApi.save(project!.id, { [field]: value })
       setProject(updated as any)
       setSavedMsg('Saved')
       setTimeout(() => setSavedMsg(''), 2000)
@@ -107,14 +149,14 @@ export default function SetupPage() {
     const fileArr = Array.from(files)
     setUploading(u => ({ ...u, [docType]: true }))
     try {
-      await documentsApi.upload(project.id, fileArr, docType, docType)
+      await documentsApi.upload(project!.id, fileArr, docType, docType)
       // Mark uploaded files as 'embedding' — polling will update to 'complete'
       setEmbeddingStatus(prev => {
         const next = { ...prev }
         fileArr.forEach(f => { next[f.name] = 'embedding' })
         return next
       })
-      const updated = await projectsApi.get(project.id)
+      const updated = await projectsApi.get(project!.id)
       setProject(updated.data)
     } catch (e: any) {
       alert('Upload failed: ' + (e.response?.data?.error || e.message))
@@ -124,18 +166,74 @@ export default function SetupPage() {
 
   async function handleDeleteDoc(docId: string) {
     if (!confirm('Remove this document?')) return
-    await documentsApi.delete(project.id, docId)
-    const updated = await projectsApi.get(project.id)
+    await documentsApi.delete(project!.id, docId)
+    const updated = await projectsApi.get(project!.id)
     setProject(updated.data)
   }
 
   function getDocsForType(typeId: string) {
-    return project.documents.filter((d: any) => d.type === typeId)
+    return project!.documents.filter((d: any) => d.type === typeId)
+  }
+
+  const entities: SubsidiaryEntity[] = project.entities || []
+
+  async function handleEntityUpload(entityId: string, files: FileList | null) {
+    if (!files || files.length === 0) return
+    const fileArr = Array.from(files)
+    setEntityUploading(u => ({ ...u, [entityId]: true }))
+    try {
+      await entityDocumentsApi.upload(project!.id, entityId, fileArr, 'general', 'general')
+      setEntityEmbeddingStatus(prev => {
+        const next = { ...prev, [entityId]: { ...(prev[entityId] || {}) } }
+        fileArr.forEach(f => { next[entityId][f.name] = 'embedding' })
+        return next
+      })
+      const updated = await projectsApi.get(project!.id)
+      setProject(updated.data)
+    } catch (e: any) {
+      alert('Upload failed: ' + (e.response?.data?.error || e.message))
+    }
+    setEntityUploading(u => ({ ...u, [entityId]: false }))
+  }
+
+  async function handleEntityDeleteDoc(entityId: string, docId: string) {
+    if (!confirm('Remove this document?')) return
+    await entityDocumentsApi.delete(project!.id, entityId, docId)
+    const updated = await projectsApi.get(project!.id)
+    setProject(updated.data)
+  }
+
+  async function handleAddEntity() {
+    if (!newEntityName.trim()) return
+    setAddingEntity(true)
+    try {
+      await entitiesApi.add(project!.id, { name: newEntityName.trim(), type: newEntityType })
+      const updated = await projectsApi.get(project!.id)
+      setProject(updated.data)
+      setNewEntityName('')
+      setNewEntityType('corporate')
+      setShowAddEntityForm(false)
+    } catch (e: any) {
+      alert('Failed to add entity: ' + (e.response?.data?.error || e.message))
+    }
+    setAddingEntity(false)
+  }
+
+  async function handleRemoveEntity(entityId: string, entityName: string) {
+    if (!confirm(`Remove entity "${entityName}"? This will delete all its documents and assessment data.`)) return
+    try {
+      await entitiesApi.remove(project!.id, entityId)
+      const updated = await projectsApi.get(project!.id)
+      setProject(updated.data)
+    } catch (e: any) {
+      alert('Failed to remove entity: ' + e.message)
+    }
   }
 
   const tabs = [
     { id: 'entity', label: 'Entity Info' },
     { id: 'documents', label: `Documents (${project.documents.length})` },
+    { id: 'entities', label: `Portfolio Entities (${entities.length})` },
     { id: 'config', label: 'Configuration' },
   ]
 
@@ -198,6 +296,16 @@ export default function SetupPage() {
 
       {activeTab === 'documents' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {entities.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px 18px', background: 'rgba(0,222,204,0.05)', border: '1px solid rgba(0,222,204,0.2)', borderRadius: 'var(--radius)' }}>
+              <Info size={15} color="var(--sia-teal)" style={{ flexShrink: 0, marginTop: '1px' }} />
+              <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.6 }}>
+                <strong style={{ color: 'var(--sia-navy)' }}>Main entity documents</strong> — these documents are scoped to <strong>{project.entityName}</strong>.
+                {' '}To manage documents for subsidiary entities (<strong>{entities.map((e: any) => e.name).join(', ')}</strong>), switch to the{' '}
+                <button onClick={() => setActiveTab('entities')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sia-teal)', fontWeight: 600, padding: 0, fontSize: '13px', textDecoration: 'underline' }}>Entities tab</button>.
+              </div>
+            </div>
+          )}
           <div className="card" style={{ padding: '24px' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '12px' }}>Quick Upload</div>
             <div
@@ -309,6 +417,15 @@ export default function SetupPage() {
             </div>
           )}
 
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px 18px', background: 'rgba(25,71,125,0.04)', border: '1px solid rgba(25,71,125,0.12)', borderRadius: 'var(--radius)' }}>
+            <Info size={15} color="var(--sia-navy)" style={{ flexShrink: 0, marginTop: '1px' }} />
+            <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.6 }}>
+              <strong style={{ color: 'var(--sia-navy)' }}>These are suggested document types to guide your upload.</strong>
+              {' '}You are not limited to these — upload any document that may be relevant to the assessment.
+              All uploaded documents go into the same shared collection and are available to the assessment engine.
+            </div>
+          </div>
+
           {Object.entries(DOC_TYPES).map(([tier, docs]) => {
             const cfg = TIER_CONFIG[tier]
             const expanded = expandedTiers[tier]
@@ -366,10 +483,10 @@ export default function SetupPage() {
                           <div
                             onDragOver={e => { e.preventDefault(); setDragOver(docDef.id) }}
                             onDragLeave={() => setDragOver(null)}
-                            onDrop={e => { e.preventDefault(); setDragOver(null); handleUpload(e.dataTransfer.files, docDef.id) }}
+                            onDrop={e => { e.preventDefault(); setDragOver(null); handleUpload(e.dataTransfer.files, 'general') }}
                             style={{ flexShrink: 0 }}
                           >
-                            <input ref={el => fileInputRefs.current[docDef.id] = el} type="file" multiple accept={docDef.accepts || '.pdf,.docx,.xlsx,.pptx,.png,.jpg'} style={{ display: 'none' }} onChange={e => handleUpload(e.target.files, docDef.id)} />
+                            <input ref={el => fileInputRefs.current[docDef.id] = el} type="file" multiple style={{ display: 'none' }} onChange={e => handleUpload(e.target.files, 'general')} />
                             <button className="btn btn-ghost btn-sm" data-testid={`button-upload-${docDef.id}`} disabled={isUploading}
                               onClick={() => fileInputRefs.current[docDef.id]?.click()}>
                               {isUploading ? <Loader2 size={12} className="spinner" /> : <Upload size={12} />}
@@ -384,6 +501,137 @@ export default function SetupPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {activeTab === 'entities' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="card" style={{ padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Building2 size={16} color="var(--sia-teal)" />
+                <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--sia-navy)', fontFamily: 'var(--font-display)' }}>Subsidiary Entities</span>
+                <span style={{ fontSize: '12px', padding: '2px 10px', borderRadius: '999px', background: 'rgba(0,222,204,0.1)', color: 'var(--sia-teal)', fontWeight: 700 }}>{entities.length}</span>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAddEntityForm(v => !v)}>
+                <Plus size={12} /> Add Entity
+              </button>
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--sia-medium-gray)' }}>Each entity has its own SiaGPT document collection and assessment. Upload documents per entity to scope RAG retrieval.</div>
+          </div>
+
+          {showAddEntityForm && (
+            <div className="card" style={{ padding: '18px 24px', border: '1px solid rgba(0,222,204,0.25)' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '12px' }}>Add New Entity</div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Entity Name</label>
+                  <input className="form-input" placeholder="e.g. Subsidiary Name" value={newEntityName}
+                    onChange={e => setNewEntityName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAddEntity()} />
+                </div>
+                <div style={{ width: '200px' }}>
+                  <label className="form-label">Type</label>
+                  <select className="form-input form-select" value={newEntityType} onChange={e => setNewEntityType(e.target.value)}>
+                    {ENTITY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={handleAddEntity} disabled={addingEntity || !newEntityName.trim()}>
+                  {addingEntity ? <Loader2 size={12} className="spinner" /> : <Plus size={12} />} Add
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddEntityForm(false); setNewEntityName('') }}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {entities.length === 0 ? (
+            <div className="card" style={{ padding: '40px', textAlign: 'center' }}>
+              <Building2 size={36} color="rgba(135,150,169,0.3)" style={{ margin: '0 auto 12px' }} />
+              <p style={{ fontSize: '13px', color: 'var(--sia-medium-gray)' }}>No subsidiary entities yet.</p>
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: '12px' }} onClick={() => setShowAddEntityForm(true)}>
+                <Plus size={12} /> Add First Entity
+              </button>
+            </div>
+          ) : (
+            entities.map(entity => {
+              const isExpanded = expandedEntityDocs.has(entity.id)
+              const isUploading = entityUploading[entity.id]
+              const entityStatus = entityEmbeddingStatus[entity.id] || {}
+              return (
+                <div key={entity.id} className="card" style={{ overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', cursor: 'pointer', borderBottom: isExpanded ? '1px solid rgba(69,85,105,0.08)' : 'none' }}
+                    onClick={() => setExpandedEntityDocs(prev => { const next = new Set(prev); next.has(entity.id) ? next.delete(entity.id) : next.add(entity.id); return next })}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <Building2 size={15} color="var(--sia-teal)" />
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sia-navy)' }}>{entity.name}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)' }}>{ENTITY_TYPES.find(t => t.value === entity.type)?.label || entity.type}</div>
+                      </div>
+                      <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '999px', background: entity.documents.length > 0 ? 'rgba(0,222,204,0.1)' : 'rgba(69,85,105,0.08)', color: entity.documents.length > 0 ? 'var(--sia-teal)' : 'var(--sia-medium-gray)', fontWeight: 600 }}>
+                        {entity.documents.length} doc{entity.documents.length !== 1 ? 's' : ''}
+                      </span>
+                      {entity.siagptCollectionId && (
+                        <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '999px', background: 'rgba(25,71,125,0.08)', color: 'var(--sia-navy)', fontWeight: 600 }}>Collection linked</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--sia-red)', borderColor: 'transparent' }}
+                        onClick={e => { e.stopPropagation(); handleRemoveEntity(entity.id, entity.name) }}>
+                        <Trash2 size={12} />
+                      </button>
+                      {isExpanded ? <ChevronUp size={15} color="var(--sia-medium-gray)" /> : <ChevronDown size={15} color="var(--sia-medium-gray)" />}
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {/* Drop zone */}
+                      <div
+                        onDragOver={e => { e.preventDefault(); setDragOver(entity.id) }}
+                        onDragLeave={() => setDragOver(null)}
+                        onDrop={e => { e.preventDefault(); setDragOver(null); handleEntityUpload(entity.id, e.dataTransfer.files) }}
+                        style={{ border: `2px dashed ${dragOver === entity.id ? 'var(--sia-teal)' : 'rgba(69,85,105,0.2)'}`, borderRadius: 'var(--radius-lg)', padding: '24px', textAlign: 'center', background: dragOver === entity.id ? 'rgba(0,222,204,0.04)' : 'transparent', transition: 'all 0.15s', cursor: 'pointer' }}
+                        onClick={() => { const i = document.createElement('input'); i.type='file'; i.multiple=true; i.accept='.pdf,.docx,.xlsx,.pptx,.png,.jpg'; i.onchange=e=>handleEntityUpload(entity.id,(e.target as HTMLInputElement).files); i.click() }}>
+                        {isUploading
+                          ? <><Loader2 size={22} color="var(--sia-teal)" className="spinner" style={{ margin: '0 auto 8px' }} /><div style={{ fontSize: '13px', color: 'var(--sia-teal)', fontWeight: 600 }}>Uploading...</div></>
+                          : <><Upload size={22} color={dragOver === entity.id ? 'var(--sia-teal)' : 'var(--sia-medium-gray)'} style={{ margin: '0 auto 8px' }} />
+                            <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)' }}>Drop documents for <strong>{entity.name}</strong> here, or click to browse</div>
+                            <div style={{ fontSize: '11px', color: 'var(--sia-medium-gray)', marginTop: '4px' }}>PDF, DOCX, XLSX, PPTX, PNG, JPG — max 50MB each</div></>
+                        }
+                      </div>
+
+                      {/* Uploaded docs */}
+                      {entity.documents.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {entity.documents.map((doc: any) => {
+                            const isEmbedding = entityStatus[doc.name] === 'embedding'
+                            const isEmbedded = entityStatus[doc.name] === 'complete'
+                            return (
+                              <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: isEmbedded ? '#F0FDF4' : isEmbedding ? 'rgba(245,158,11,0.05)' : 'var(--sia-light-gray)', border: `1px solid ${isEmbedded ? '#6EE7B7' : isEmbedding ? 'rgba(245,158,11,0.3)' : 'rgba(69,85,105,0.1)'}`, borderRadius: 'var(--radius)' }}>
+                                <div style={{ width: '30px', height: '30px', borderRadius: '6px', flexShrink: 0, background: isEmbedded ? '#D1FAE5' : 'white', border: `1px solid ${isEmbedded ? '#6EE7B7' : 'rgba(69,85,105,0.15)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {isEmbedding ? <Loader2 size={13} color="#D97706" className="spinner" /> : isEmbedded ? <CheckCircle size={13} color="var(--sia-green)" /> : <FileText size={13} color="var(--sia-medium-gray)" />}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--sia-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</div>
+                                  {doc.wordCount > 0 && <div style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>{doc.wordCount.toLocaleString()} words</div>}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                  {isEmbedding && <span style={{ fontSize: '11px', color: '#D97706', fontWeight: 600 }}>Processing...</span>}
+                                  {isEmbedded && <span style={{ fontSize: '11px', color: 'var(--sia-green)', fontWeight: 600 }}>Embedded</span>}
+                                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sia-cool-gray)', padding: '3px', display: 'flex' }} onClick={() => setPreviewDoc(doc)}><Eye size={13} /></button>
+                                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sia-red)', padding: '3px', display: 'flex' }} onClick={() => handleEntityDeleteDoc(entity.id, doc.id)}><Trash2 size={13} /></button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 

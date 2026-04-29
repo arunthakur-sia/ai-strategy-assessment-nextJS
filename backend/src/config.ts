@@ -52,5 +52,18 @@ export const config = {
     P7: process.env.SIAGPT_ASSISTANT_P7 || process.env.NEXT_PUBLIC_ASSISTANT_PILLAR_7 || '',
     P8: process.env.SIAGPT_ASSISTANT_P8 || process.env.NEXT_PUBLIC_ASSISTANT_PILLAR_8 || '',
   } as Record<string, string>,
+  // Non-pillar agent assistant IDs
+  assistantIds: {
+    swot:     process.env.SIAGPT_ASSISTANT_SWOT     || '',
+    strategy: process.env.SIAGPT_ASSISTANT_STRATEGY || '',
+    chat:     process.env.SIAGPT_ASSISTANT_CHAT     || '',
+    d1:       process.env.SIAGPT_ASSISTANT_D1       || '',
+    d2:       process.env.SIAGPT_ASSISTANT_D2       || '',
+    d3:       process.env.SIAGPT_ASSISTANT_D3       || '',
+    d4:       process.env.SIAGPT_ASSISTANT_D4       || '',
+    d5:       process.env.SIAGPT_ASSISTANT_D5       || '',
+    d6:       process.env.SIAGPT_ASSISTANT_D6       || '',
+    rubric:   process.env.SIAGPT_ASSISTANT_RUBRIC   || '',
+  } as Record<string, string>,
   isDev: (process.env.NODE_ENV || 'development') === 'development',
 }

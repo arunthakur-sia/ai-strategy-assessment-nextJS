@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useStore } from '../store/useStore'
 import { projectsApi, aiApi } from '../api'
 import { Plus, Trash2, Edit3, Save, X, Loader2, MessageSquare, ChevronRight, GitBranch } from 'lucide-react'
+import EntityBanner from '../components/EntityBanner'
 
 const LEVEL_COLORS = ['#173044','#00DECC','#10B981','#3B82F6','#8B5CF6','#F59E0B']
 const LEVEL_BG = ['#F8FAFB','rgba(0,222,204,0.06)','rgba(16,185,129,0.06)','rgba(59,130,246,0.06)','rgba(139,92,246,0.06)','rgba(245,158,11,0.06)']
@@ -9,7 +10,7 @@ const LEVEL_BG = ['#F8FAFB','rgba(0,222,204,0.06)','rgba(16,185,129,0.06)','rgba
 function uuid() { return crypto.randomUUID() }
 
 export default function StrategyPage() {
-  const { project, setProject } = useStore()
+  const { project, setProject, activeEntityId } = useStore()
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [editingNode, setEditingNode] = useState<any | null>(null)
   const [generating, setGenerating] = useState<string | null>(null)
@@ -21,9 +22,10 @@ export default function StrategyPage() {
 
   if (!project) return null
 
-  const strategy = project.strategy
-  const levelNames = strategy.levelNames || ['Vision','Strategic Option','Outcome','Initiative']
-  const nodes: any[] = strategy.nodes || []
+  const activeEntity = activeEntityId ? (project.entities || []).find((e: any) => e.id === activeEntityId) : null
+  const strategy = activeEntity?.strategy || project.strategy
+  const levelNames = strategy?.levelNames || ['Vision','Strategic Option','Outcome','Initiative']
+  const nodes: any[] = strategy?.nodes || []
 
   const selectedNode = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null
 
@@ -32,7 +34,11 @@ export default function StrategyPage() {
   }
 
   async function saveStrategy(newNodes: any[]) {
-    await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+    if (activeEntity) {
+      await projectsApi.updateEntityStrategy(project.id, activeEntity.id, { nodes: newNodes })
+    } else {
+      await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+    }
     const res = await projectsApi.get(project.id)
     setProject(res.data)
   }
@@ -71,7 +77,7 @@ export default function StrategyPage() {
     try {
       let context: any = {}
       if (task === 'vision_mission') {
-        const res = await aiApi.generateStrategy(project.id, task, context)
+        const res = await aiApi.generateStrategy(project.id, task, { entityId: activeEntityId || undefined })
         const { vision, mission } = res.data.data
         const vNode = nodes.find(n => n.level === 0)
         if (vNode) {
@@ -81,7 +87,7 @@ export default function StrategyPage() {
         }
       } else if (task === 'strategic_objectives') {
         context.count = 4
-        const res = await aiApi.generateStrategy(project.id, task, context)
+        const res = await aiApi.generateStrategy(project.id, task, { ...context, entityId: activeEntityId || undefined })
         const { objectives } = res.data.data
         const vision = nodes.find(n => n.level === 0)
         for (const obj of (objectives || [])) {
@@ -90,11 +96,11 @@ export default function StrategyPage() {
       } else if (task === 'kpis' && nodeId) {
         const node = nodes.find(n => n.id === nodeId)
         context.objectiveTitle = node?.title
-        const res = await aiApi.generateStrategy(project.id, task, context)
+        const res = await aiApi.generateStrategy(project.id, task, { ...context, entityId: activeEntityId || undefined })
         const newNodes = nodes.map(n => n.id === nodeId ? { ...n, kpis: res.data.data.kpis || [] } : n)
         await saveStrategy(newNodes)
       } else if (task === 'consistency_check') {
-        const res = await aiApi.generateStrategy(project.id, task, {})
+        const res = await aiApi.generateStrategy(project.id, task, { entityId: activeEntityId || undefined })
         const { issues, overallAssessment } = res.data.data
         alert(`Strategy Review:\n\n${overallAssessment}\n\nIssues Found:\n${(issues || []).map((i: any) => `• [${i.type}] ${i.description}`).join('\n')}`)
       }
@@ -241,6 +247,7 @@ export default function StrategyPage() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto', padding: '24px', borderRight: '1px solid rgba(69,85,105,0.1)' }}>
+        <EntityBanner note={activeEntity ? `Strategy Builder is scoped to ${activeEntity.name}. Switch entities in the sidebar to build a separate strategy.` : 'Viewing the main project strategy. Select a subsidiary in the sidebar to build its own strategy tree.'} compact />
         {!selectedNode ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: '16px', color: 'var(--sia-medium-gray)' }}>
             <GitBranch size={48} style={{ opacity: 0.2 }} />

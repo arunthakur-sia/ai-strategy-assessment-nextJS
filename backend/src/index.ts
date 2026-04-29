@@ -61,6 +61,11 @@ app.use((req, res, next) => {
   })
 
   httpServer.listen({ port: config.port, host: '0.0.0.0' }, () => {
+    // Extend socket timeouts so long-running SiaGPT agent calls (D1-D6 can take 90-180s)
+    // are not killed by Node.js before the response arrives.
+    httpServer.setTimeout(20 * 60 * 1000)          // 20 min: max time for any single request
+    httpServer.keepAliveTimeout = 20 * 60 * 1000   // 20 min: keep-alive idle timeout
+    httpServer.headersTimeout   = 20 * 60 * 1000 + 1000 // must be slightly above keepAliveTimeout
     console.log(`SIA Assessment Server running on port ${config.port} [${config.nodeEnv}]`)
     console.log(`CORS origin: ${config.frontendUrl}`)
   })
