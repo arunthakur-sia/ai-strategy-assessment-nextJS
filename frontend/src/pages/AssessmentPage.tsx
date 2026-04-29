@@ -246,9 +246,10 @@ export default function AssessmentPage() {
   async function loadBenchmarks() {
     setLoadingBenchmarks(true)
     try {
-      const res = await aiApi.benchmarks(project.id, activePillar)
+      await aiApi.benchmarks(project.id, activePillar, activeEntityId)
       const updated = await projectsApi.get(project.id)
       setProject(updated.data)
+      setExpandedSections(prev => ({ ...prev, benchmarks: true }))
     } catch (e: any) {
       alert('Failed to load benchmarks: ' + (e.response?.data?.error || e.message))
     }

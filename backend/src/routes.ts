@@ -1526,11 +1526,30 @@ INSTRUCTIONS:
       if (!project) return res.status(404).json({ error: 'Not found' })
 
       const pillarId = req.params.pillarId as string
-      const pillar = project.assessment.pillars[pillarId]
+      const entityId = req.body?.entityId as string | undefined
+
+      // When entityId is provided, operate on that subsidiary entity's assessment
+      let targetPillars: any
+      let entityName: string
+      let entityType: string
+      if (entityId) {
+        const entity = (project.entities || []).find((e: any) => e.id === entityId)
+        if (!entity) return res.status(404).json({ error: 'Entity not found' })
+        targetPillars = entity.assessment.pillars
+        entityName = entity.name
+        entityType = entity.type || project.entityType
+      } else {
+        targetPillars = project.assessment.pillars
+        entityName = project.entityName
+        entityType = project.entityType
+      }
+
+      const pillar = targetPillars[pillarId]
+      if (!pillar) return res.status(404).json({ error: 'Pillar not found' })
       let benchmarkData: any
 
       {
-        const prompt = `${getAgentPersona(pillarId)}Generate benchmark comparison data for the "${pillar.name}" pillar for ${project.entityName} (${project.entityType}). Current entity score: ${pillar.finalScore || 3.0}/5.
+        const prompt = `${getAgentPersona(pillarId)}Generate benchmark comparison data for the "${pillar.name}" pillar for ${entityName} (${entityType}). Current entity score: ${pillar.finalScore || 3.0}/5.
 
 Provide 6-8 realistic benchmark comparators including GCC organizations, regional peers, and global best practice. Use your knowledge of GCC government entities, sovereign wealth funds, and comparable organizations.
 
@@ -1550,7 +1569,7 @@ Return ONLY valid JSON:
         benchmarkData = parseJsonFromText(rawText)
       }
 
-      project.assessment.pillars[pillarId].benchmarkData = benchmarkData
+      targetPillars[pillarId].benchmarkData = benchmarkData
       await saveProject(project)
       res.json({ success: true, data: benchmarkData })
     } catch (err: any) { res.status(500).json({ error: err.message }) }

@@ -117,7 +117,7 @@ export const aiApi = {
       try { yield JSON.parse(buffer.trim().slice(6)) } catch { /* ignore */ }
     }
   },
-  benchmarks: (projectId: string, pillarId: string) => api.post(`/ai/${projectId}/benchmarks/${pillarId}`),
+  benchmarks: (projectId: string, pillarId: string, entityId?: string | null) => api.post(`/ai/${projectId}/benchmarks/${pillarId}`, entityId ? { entityId } : {}),
   generateRubric: () => api.post('/rubric/generate'),
   getRubric: () => api.get('/rubric'),
 
