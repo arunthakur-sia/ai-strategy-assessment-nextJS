@@ -6,6 +6,7 @@ import { Search, Play, AlertTriangle, TrendingUp, FileText, Loader2, CheckCircle
 import { aiApi, projectsApi, entitiesApi } from '../api'
 import type { SubsidiaryEntity } from '../store/useStore'
 import { CitedText } from '../components/CitedText'
+import { startPillarAssessment, startBatchAssessment, startEntitiesAssessment } from '../services/assessmentService'
 
 const PILLAR_ICONS: Record<string, string> = { P1:'🎯', P2:'🏛', P3:'💰', P4:'🗺', P5:'⚙️', P6:'👥', P7:'🛡', P8:'🚀' }
 const RAG_COLORS: Record<string, string> = { red: 'var(--sia-red)', amber: 'var(--sia-amber)', green: 'var(--sia-green)', gray: 'var(--sia-medium-gray)' }
@@ -74,6 +75,8 @@ export default function Dashboard() {
   const effectiveDocuments = activeEntity ? (activeEntity.documents || []) : (project.documents || [])
   const docWarnings = effectiveDocuments.filter((d: any) => !d.extractedText || d.extractedText.length < 100)
 
+  const HOLDING_ID = '__holding__'
+
   async function runSinglePillar(pillarId: string) {
     if (!hasDocuments) {
       alert('Please upload at least one document in Project Setup before running an assessment.')
@@ -81,30 +84,20 @@ export default function Dashboard() {
     }
     setRunningPillars(prev => new Set(prev).add(pillarId))
     setStreamLog('')
-    let lastError = ''
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      lastError = ''
-      try {
-        for await (const data of aiApi.assessPillarStream(project!.id, pillarId)) {
-          if (data.chunk) setStreamLog((prev: string) => prev + data.chunk)
-          if (data.done) {
-            const res = await projectsApi.get(project!.id)
-            setProject(res.data)
-            setStreamLog('')
-          }
-          if (data.error) { lastError = data.error; break }
-        }
-      } catch (e: any) {
-        lastError = e.message
+    startPillarAssessment(
+      project!.id,
+      activeEntity?.id ?? null,
+      pillarId,
+      {
+        onChunk: (chunk) => setStreamLog(prev => prev + chunk),
+        onDone: () => { setStreamLog(''); setRunningPillars(prev => { const n = new Set(prev); n.delete(pillarId); return n }) },
+        onError: (err) => {
+          alert(`Pillar ${pillarId} failed:\n${err}\n\nYou can try again using the Run button.`)
+          setRunningPillars(prev => { const n = new Set(prev); n.delete(pillarId); return n })
+          setStreamLog('')
+        },
       }
-      if (!lastError) break // success — exit retry loop
-      if (attempt < 2) setStreamLog(`Retry ${attempt + 1}/2…`)
-    }
-    if (lastError) {
-      alert(`Pillar ${pillarId} failed after 3 attempts:\n${lastError}\n\nYou can try again using the Run button next to this pillar.`)
-    }
-    setRunningPillars(prev => { const next = new Set(prev); next.delete(pillarId); return next })
-    setStreamLog('')
+    )
   }
 
   async function runAllPillars() {
@@ -119,52 +112,45 @@ export default function Dashboard() {
     const errors: string[] = []
     let doneCount = 0
 
-    try {
-      for await (const data of aiApi.assessBatchStream(project!.id, pillarIds)) {
-        if (data.pillarId && data.retrying) {
-          // backend is retrying — keep spinner, no count change
-        } else if (data.pillarId && data.progress) {
+    startBatchAssessment(
+      project!.id,
+      activeEntity?.id ?? null,
+      pillarIds,
+      {
+        onPillarUpdate: (pillarId, status) => {
           doneCount++
-          setRunningPillars(prev => { const next = new Set(prev); next.delete(data.pillarId); return next })
+          setRunningPillars(prev => { const next = new Set(prev); next.delete(pillarId); return next })
+          if (status === 'error') errors.push(`${pillarId}: failed`)
           setRunProgress({ done: doneCount, total: pillarIds.length, errors: [...errors] })
-        } else if (data.pillarId && data.error) {
-          doneCount++
-          errors.push(`${data.pillarId}: ${data.error}`)
-          setRunningPillars(prev => { const next = new Set(prev); next.delete(data.pillarId); return next })
-          setRunProgress({ done: doneCount, total: pillarIds.length, errors: [...errors] })
-        }
-        if (data.done) {
-          const res = await projectsApi.get(project!.id)
-          setProject(res.data)
-          if (data.failedPillarIds?.length > 0) {
-            const pillarData = res.data?.assessment?.pillars || {}
-            ;(data.failedPillarIds as string[]).forEach((id: string) => {
-              const name = pillarData[id]?.name
+        },
+        onDone: (failedIds) => {
+          if (failedIds.length > 0) {
+            const pillarMap = useStore.getState().project?.assessment?.pillars || {}
+            failedIds.forEach((id: string) => {
+              const name = pillarMap[id]?.name
               if (!errors.some((e: string) => e.startsWith(id + ':'))) {
                 errors.push(`${id}${name ? ` (${name})` : ''}: failed after retries`)
               }
             })
           }
-        }
-        if (data.error && !data.pillarId) {
-          errors.push(data.error)
-        }
+          setRunningPillars(new Set())
+          setRunningAll(false)
+          setStreamLog('')
+          if (errors.length > 0) {
+            setRunProgress({ done: pillarIds.length, total: pillarIds.length, errors })
+          } else {
+            setTimeout(() => setRunProgress(null), 4000)
+          }
+        },
+        onError: (err) => {
+          errors.push(err)
+          setRunningPillars(new Set())
+          setRunningAll(false)
+          setStreamLog('')
+        },
       }
-    } catch (e: any) {
-      errors.push(e.message)
-    }
-
-    setRunningPillars(new Set())
-    setRunningAll(false)
-    setStreamLog('')
-    if (errors.length > 0) {
-      setRunProgress({ done: pillarIds.length, total: pillarIds.length, errors })
-    } else {
-      setTimeout(() => setRunProgress(null), 4000)
-    }
+    )
   }
-
-  const HOLDING_ID = '__holding__'
 
   // Run assessments for selected or all entities (including holding company)
   async function runEntityAssessments(entityIds?: string[]) {
@@ -174,7 +160,7 @@ export default function Dashboard() {
     const runHolding = allIds.includes(HOLDING_ID)
     const subEntityIds = allIds.filter(id => id !== HOLDING_ID)
 
-    // Start holding company assessment independently
+    // Start holding company assessment via service (module-level, survives navigation)
     if (runHolding) runAllPillars()
 
     if (subEntityIds.length === 0) return
@@ -188,33 +174,38 @@ export default function Dashboard() {
     targetIds.forEach(id => { initProgress[id] = { done: 0, total: 8, errors: [] } })
     setEntityProgress(initProgress)
     const errors: string[] = []
-    try {
-      for await (const data of aiApi.assessEntitiesStream(project!.id, targetIds)) {
-        if (data.entityId && data.progress) {
+
+    startEntitiesAssessment(
+      project!.id,
+      targetIds,
+      {
+        onEntityPillarProgress: (entityId, pillarId, status) => {
           setEntityProgress(prev => ({
             ...prev,
-            [data.entityId]: { ...prev[data.entityId], done: (prev[data.entityId]?.done || 0) + 1 }
+            [entityId]: {
+              ...prev[entityId],
+              done: (prev[entityId]?.done || 0) + 1,
+              errors: status === 'error'
+                ? [...(prev[entityId]?.errors || []), `${pillarId}: failed`]
+                : (prev[entityId]?.errors || []),
+            }
           }))
-        }
-        if (data.entityId && data.error && data.pillarId) {
-          setEntityProgress(prev => ({
-            ...prev,
-            [data.entityId]: { ...prev[data.entityId], done: (prev[data.entityId]?.done || 0) + 1, errors: [...(prev[data.entityId]?.errors || []), `${data.pillarId}: ${data.error}`] }
-          }))
-        }
-        if (data.done) {
-          const res = await projectsApi.get(project!.id)
-          setProject(res.data)
+          if (status === 'error') {
+            setRunningEntityIds(prev => { const n = new Set(prev); n.delete(entityId); return n })
+          }
+        },
+        onDone: () => {
           setRunningEntityIds(new Set())
-        }
-        if (data.error && !data.entityId) errors.push(data.error)
+          setEntitiesRunning(false)
+          if (!errors.length) setTimeout(() => setEntityProgress({}), 5000)
+        },
+        onError: (err) => {
+          errors.push(err)
+          setEntityErrors([...errors])
+          setEntitiesRunning(false)
+        },
       }
-    } catch (e: any) {
-      errors.push(e.message)
-    }
-    setEntitiesRunning(false)
-    setEntityErrors(errors)
-    if (!errors.length) setTimeout(() => setEntityProgress({}), 5000)
+    )
   }
 
   async function handleAddEntity() {

@@ -129,7 +129,7 @@ const STARTER_PROMPTS = [
 
 export default function AssessmentPage() {
   const { project, setProject, activePillar, setActivePillar, getRag, activeEntityId, setSourcesOpen, setActiveSourceNum,
-    assessmentRunning, setAssessmentRunning, assessmentRunningPillars, setAssessmentRunningPillars, updateAssessmentRunningPillar } = useStore()
+    assessmentRunning, assessmentRunningPillars } = useStore()
   const [streamText, setStreamText] = useState('')
   const [assessError, setAssessError] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState({ summary: true, elements: true, swot: false, questions: true, benchmarks: false, chat: false })
@@ -180,22 +180,18 @@ export default function AssessmentPage() {
       setAssessError(`No documents uploaded${activeEntity ? ` for ${activeEntity.name}` : ''}. Upload documents first before running an assessment.`)
       return
     }
-    setAssessmentRunning(true); setAssessmentRunningPillars({}); setStreamText(''); setAssessError(null)
-    try {
-      const stream = activeEntity
-        ? aiApi.assessEntityPillarStream(project.id, activeEntity.id, activePillar)
-        : aiApi.assessPillarStream(project.id, activePillar)
-      for await (const data of stream) {
-        if (data.chunk) setStreamText((prev: string) => prev + data.chunk)
-        if (data.done) {
-          const res = await projectsApi.get(project.id)
-          setProject(res.data)
-          setStreamText('')
-        }
-        if (data.error) { setAssessError(data.error); break }
+    setStreamText('')
+    setAssessError(null)
+    startPillarAssessment(
+      project.id,
+      activeEntity?.id ?? null,
+      activePillar,
+      {
+        onChunk: (chunk) => setStreamText(prev => prev + chunk),
+        onDone: () => setStreamText(''),
+        onError: (err) => { setAssessError(err); setStreamText('') },
       }
-    } catch (e: any) { setAssessError('Assessment failed: ' + e.message) }
-    setAssessmentRunning(false)
+    )
   }
 
   async function saveSummary() {
@@ -283,52 +279,30 @@ export default function AssessmentPage() {
       setAssessError(`No documents uploaded${activeEntity ? ` for ${activeEntity.name}` : ''}. Upload documents before running assessments.`)
       return
     }
-    setAssessmentRunning(true)
     setAssessError(null)
-    const initial: Record<string, 'running' | 'done' | 'error'> = {}
-    ids.forEach(id => { initial[id] = 'running' })
-    setAssessmentRunningPillars(initial)
-
-    try {
-      const stream = activeEntity
-        ? aiApi.assessEntityBatchStream(project.id, activeEntity.id, ids)
-        : aiApi.assessBatchStream(project.id, ids)
-      for await (const data of stream) {
-        if (data.pillarId && data.retrying) {
-          // keep showing spinner during retry — no state change needed
-        }
-        if (data.pillarId && data.progress) {
-          updateAssessmentRunningPillar(data.pillarId, 'done')
-        }
-        if (data.pillarId && data.error) {
-          updateAssessmentRunningPillar(data.pillarId, 'error')
-        }
-        if (data.done) {
-          const res = await projectsApi.get(project.id)
-          setProject(res.data)
-          if (data.failedPillarIds?.length > 0) {
-            const projectData = res.data
+    startBatchAssessment(
+      project.id,
+      activeEntity?.id ?? null,
+      ids,
+      {
+        onDone: (failedIds) => {
+          if (failedIds.length > 0) {
+            // project already refreshed in store by service — read pillar names from store
             const pillarMap = activeEntity
-              ? (projectData?.entities || []).find((e: any) => e.id === activeEntity.id)?.assessment?.pillars
-              : projectData?.assessment?.pillars
-            const names = (data.failedPillarIds as string[]).map((id: string) => {
+              ? (useStore.getState().project?.entities || []).find((e: any) => e.id === activeEntity.id)?.assessment?.pillars
+              : useStore.getState().project?.assessment?.pillars
+            const names = failedIds.map((id: string) => {
               const p = pillarMap?.[id]
               return p ? `${id} · ${p.name}` : id
             }).join(', ')
             setAssessError(
-              `${data.failedPillarIds.length} pillar${data.failedPillarIds.length > 1 ? 's' : ''} failed after retries: ${names}. Select them individually in the left panel and click "Run AI Assessment" to retry manually.`
+              `${failedIds.length} pillar${failedIds.length > 1 ? 's' : ''} failed after retries: ${names}. Select them individually and click "Run AI Assessment" to retry.`
             )
           }
-        }
-        if (data.error && !data.pillarId) {
-          setAssessError(data.error)
-        }
+        },
+        onError: (err) => setAssessError(err),
       }
-    } catch (e: any) {
-      setAssessError('Batch assessment failed: ' + e.message)
-    }
-    setAssessmentRunning(false)
-    setAssessmentRunningPillars({})
+    )
   }
 
   const rag = getRag(pillar.finalScore)
