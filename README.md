@@ -67,7 +67,8 @@ npm start
 ```bash
 cd frontend/
 cp .env.example .env
-# Set VITE_API_URL=http://localhost:3000/api  (or your backend URL)
+# Set VITE_API_URL=http://localhost:3000  (or your backend URL)
+# Optional: VITE_API_URL may include /api; both formats are supported.
 npm install
 npm run build
 # Serve dist/ with any static host (Vercel, Nginx, Caddy, …)
@@ -92,6 +93,7 @@ npm run build
 | `OAUTH2_CLIENT_SECRET` | No | — | OAuth2 client secret (omit for demo mode) |
 | `ZITADEL_PROJECT_ID` | No | — | Zitadel project UUID for scope |
 | `FRONTEND_URL` | No | `http://localhost:5173` | Allowed CORS origin |
+| `CORS_ORIGINS` | No | `FRONTEND_URL` | Comma-separated allowed CORS origins (e.g. Vercel prod + preview domains) |
 | `PORT` | No | `3000` | HTTP port |
 | `NODE_ENV` | No | `development` | `production` enables SSL behaviours |
 

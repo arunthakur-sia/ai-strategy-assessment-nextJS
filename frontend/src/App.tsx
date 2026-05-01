@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import AppShell from './pages/AppShell'
 import { useStore } from './store/useStore'
+import { CONFIG } from './config'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, project } = useStore()
@@ -14,7 +15,7 @@ function App() {
   const { setDemoMode } = useStore()
 
   useEffect(() => {
-    fetch('/api/config', { credentials: 'include' })
+    fetch(`${CONFIG.API_ROOT}/config`, { credentials: 'include' })
       .then(r => r.json())
       .then(data => { setDemoMode(!!data.demoMode) })
       .catch(() => { setDemoMode(true) })

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { CONFIG } from '../config'
 
-const BASE_URL = CONFIG.API_URL
+const API_ROOT = CONFIG.API_ROOT
 
 // ── Token store (Safari ITP workaround) ──────────────────────────────────────
 // Safari blocks cross-domain cookies even with SameSite=None.
@@ -28,7 +28,7 @@ export function authHeaders(projectId: string): Record<string, string> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const api = axios.create({
-  baseURL: `${BASE_URL}/api`,
+  baseURL: API_ROOT,
   withCredentials: true,
   timeout: 60000,
 })
@@ -96,7 +96,7 @@ export const aiApi = {
   // generate-report uses SSE so the browser stays connected during long agent runs (80-180s)
   // optional entityId: '__main__' for main project, entity UUID for subsidiary
   generateReport: async function* (projectId: string, reportType: string, entityId?: string) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/generate-report/${reportType}`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/generate-report/${reportType}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -125,7 +125,7 @@ export const aiApi = {
 
   // Batch report generation — runs multiple (entity × report type) combos in parallel, streams SSE
   generateReportsBatch: async function* (projectId: string, entityIds: string[], reportTypes: string[]) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/generate-reports-batch`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/generate-reports-batch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -156,7 +156,7 @@ export const aiApi = {
   getRubric: () => api.get('/rubric'),
 
   chat: async function* (projectId: string, messages: any[], context: any) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/chat`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/chat`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -184,7 +184,7 @@ export const aiApi = {
   },
 
   assessPillarStream: async function* (projectId: string, pillarId: string) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess/${pillarId}`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/assess/${pillarId}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -211,7 +211,7 @@ export const aiApi = {
   },
 
   assessBatchStream: async function* (projectId: string, pillarIds: string[]) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess-batch`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/assess-batch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -239,7 +239,7 @@ export const aiApi = {
   },
 
   assessEntityPillarStream: async function* (projectId: string, entityId: string, pillarId: string) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/${entityId}/assess/${pillarId}`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/${entityId}/assess/${pillarId}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -263,7 +263,7 @@ export const aiApi = {
   },
 
   assessEntityBatchStream: async function* (projectId: string, entityId: string, pillarIds?: string[]) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/${entityId}/assess-batch`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/${entityId}/assess-batch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
@@ -288,7 +288,7 @@ export const aiApi = {
   },
 
   assessEntitiesStream: async function* (projectId: string, entityIds?: string[]) {
-    const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess-entities`, {
+    const resp = await fetch(`${API_ROOT}/ai/${projectId}/assess-entities`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },

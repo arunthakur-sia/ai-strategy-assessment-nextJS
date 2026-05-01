@@ -12,12 +12,22 @@ import { serveStaticFrontend } from './static.js'
 const app = express()
 const httpServer = createServer(app)
 
+const allowedOrigins = new Set(
+  config.frontendOrigins.map(origin => origin.replace(/\/+$/, ''))
+)
+
 // Trust Railway's reverse proxy so Express sees HTTPS correctly
 // (required for secure cookies and correct req.ip)
 app.set('trust proxy', 1)
 
 app.use(cors({
-  origin: config.frontendUrl,
+  origin: (origin, callback) => {
+    // Allow server-to-server requests (no Origin header) and configured browser origins.
+    if (!origin) return callback(null, true)
+    const normalizedOrigin = origin.replace(/\/+$/, '')
+    if (allowedOrigins.has(normalizedOrigin)) return callback(null, true)
+    return callback(new Error(`CORS blocked for origin: ${origin}`))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -72,6 +82,6 @@ app.use((req, res, next) => {
     httpServer.keepAliveTimeout = 20 * 60 * 1000   // 20 min: keep-alive idle timeout
     httpServer.headersTimeout   = 20 * 60 * 1000 + 1000 // must be slightly above keepAliveTimeout
     console.log(`SIA Assessment Server running on port ${config.port} [${config.nodeEnv}]`)
-    console.log(`CORS origin: ${config.frontendUrl}`)
+    console.log(`CORS origins: ${config.frontendOrigins.join(', ')}`)
   })
 })()

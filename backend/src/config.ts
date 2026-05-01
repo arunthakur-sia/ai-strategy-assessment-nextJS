@@ -15,11 +15,23 @@ try {
   }
 } catch { /* no .env file — rely on system environment */ }
 
+function parseOrigins(input: string): string[] {
+  return input
+    .split(',')
+    .map(v => v.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+}
+
+const configuredOrigins = parseOrigins(
+  process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173'
+)
+
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   sessionSecret: process.env.SESSION_SECRET || 'sia-dev-secret-change-in-production',
   nodeEnv: process.env.NODE_ENV || 'development',
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  frontendUrl: configuredOrigins[0] || 'http://localhost:5173',
+  frontendOrigins: configuredOrigins,
   // Supabase
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',

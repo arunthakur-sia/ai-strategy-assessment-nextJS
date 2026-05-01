@@ -5,6 +5,7 @@
   "env": {
     "VITE_API_URL": "https://authentic-reverence-production-45b9.up.railway.app"
   },
+  "envComment": "VITE_API_URL should be the backend hostname (e.g. https://something.railway.app), NOT including /api suffix. The frontend will automatically append /api.",
   "headers": [
     {
       "source": "/(.*)",
