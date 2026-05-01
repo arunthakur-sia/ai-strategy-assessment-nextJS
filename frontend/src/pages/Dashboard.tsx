@@ -644,7 +644,7 @@ export default function Dashboard() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '28px' }}>
         {[
-          { label: 'Overall Maturity', value: overallScore ? `${overallScore}/5` : '—', sub: overallScore ? RAG_LABELS[getRag(parseFloat(overallScore))] : 'Not assessed', color: overallScore ? RAG_COLORS[getRag(parseFloat(overallScore))] : 'var(--sia-medium-gray)' },
+          { label: 'Overall Maturity', value: overallScore ? `${overallScore}/5` : '—', sub: overallScore ? RAG_LABELS[getRag(Number(overallScore))] : 'Not assessed', color: overallScore ? RAG_COLORS[getRag(Number(overallScore))] : 'var(--sia-medium-gray)' },
           { label: 'Assessment Progress', value: `${completion}%`, sub: `${Object.values(pillars).filter((p: any) => p.status === 'complete').length}/8 pillars complete`, color: 'var(--sia-teal)' },
           { label: 'Documents Uploaded', value: String(project.documents.length), sub: project.documents.length === 0 ? 'No documents — add in Setup' : `${project.documents.reduce((s: number, d: any) => s + (d.wordCount || 0), 0).toLocaleString()} words extracted`, color: project.documents.length > 0 ? 'var(--sia-navy)' : 'var(--sia-amber)' },
           { label: 'Entities in Portfolio', value: String(1 + entities.length), sub: `${(completion === 100 ? 1 : 0) + entities.filter(e => entityCompletion(e) === 100).length} fully assessed`, color: 'var(--sia-teal)' },

@@ -35,11 +35,11 @@ export default function StrategyPage() {
 
   async function saveStrategy(newNodes: any[]) {
     if (activeEntity) {
-      await projectsApi.updateEntityStrategy(project.id, activeEntity.id, { nodes: newNodes })
+      await projectsApi.updateEntityStrategy(project!.id, activeEntity.id, { nodes: newNodes })
     } else {
-      await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+      await projectsApi.updateStrategy(project!.id, { nodes: newNodes })
     }
-    const res = await projectsApi.get(project.id)
+    const res = await projectsApi.get(project!.id)
     setProject(res.data)
   }
 
@@ -77,7 +77,7 @@ export default function StrategyPage() {
     try {
       let context: any = {}
       if (task === 'vision_mission') {
-        const res = await aiApi.generateStrategy(project.id, task, { entityId: activeEntityId || undefined })
+        const res = await aiApi.generateStrategy(project!.id, task, { entityId: activeEntityId || undefined })
         const { vision, mission } = res.data.data
         const vNode = nodes.find(n => n.level === 0)
         if (vNode) {
@@ -87,7 +87,7 @@ export default function StrategyPage() {
         }
       } else if (task === 'strategic_objectives') {
         context.count = 4
-        const res = await aiApi.generateStrategy(project.id, task, { ...context, entityId: activeEntityId || undefined })
+        const res = await aiApi.generateStrategy(project!.id, task, { ...context, entityId: activeEntityId || undefined })
         const { objectives } = res.data.data
         const vision = nodes.find(n => n.level === 0)
         for (const obj of (objectives || [])) {
@@ -96,11 +96,11 @@ export default function StrategyPage() {
       } else if (task === 'kpis' && nodeId) {
         const node = nodes.find(n => n.id === nodeId)
         context.objectiveTitle = node?.title
-        const res = await aiApi.generateStrategy(project.id, task, { ...context, entityId: activeEntityId || undefined })
+        const res = await aiApi.generateStrategy(project!.id, task, { ...context, entityId: activeEntityId || undefined })
         const newNodes = nodes.map(n => n.id === nodeId ? { ...n, kpis: res.data.data.kpis || [] } : n)
         await saveStrategy(newNodes)
       } else if (task === 'consistency_check') {
-        const res = await aiApi.generateStrategy(project.id, task, { entityId: activeEntityId || undefined })
+        const res = await aiApi.generateStrategy(project!.id, task, { entityId: activeEntityId || undefined })
         const { issues, overallAssessment } = res.data.data
         alert(`Strategy Review:\n\n${overallAssessment}\n\nIssues Found:\n${(issues || []).map((i: any) => `• [${i.type}] ${i.description}`).join('\n')}`)
       }
@@ -120,7 +120,7 @@ export default function StrategyPage() {
     let aiText = ''
     setChatMessages((msgs: any[]) => [...msgs, { role: 'assistant', content: '', streaming: true }])
     try {
-      for await (const data of aiApi.chat(project.id, newMessages, { nodeId: selectedNodeId })) {
+      for await (const data of aiApi.chat(project!.id, newMessages, { nodeId: selectedNodeId })) {
         if (data.chunk) {
           aiText += data.chunk
           setChatMessages((msgs: any[]) => msgs.map((m: any, i: number) => i === msgs.length - 1 ? { ...m, content: aiText } : m))

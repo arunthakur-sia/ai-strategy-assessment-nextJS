@@ -3,6 +3,7 @@
   "exclude": ["node_modules", "dist"],
   "compilerOptions": {
     "noEmit": true,
+    "target": "ES2015",
     "module": "ESNext",
     "strict": true,
     "lib": ["esnext", "dom", "dom.iterable"],

@@ -38,16 +38,16 @@ export default function SwotPage() {
           if (p.swot?.opportunities) entitySwot.opportunities.push(...p.swot.opportunities.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
           if (p.swot?.threats) entitySwot.threats.push(...p.swot.threats.map((s: string) => ({ text: s, significance: 'medium', pillar: p.name })))
         })
-        const updatedEntities = (project.entities || []).map((e: any) =>
+        const updatedEntities = (project!.entities || []).map((e: any) =>
           e.id === activeEntity.id
             ? { ...e, assessment: { ...e.assessment, consolidatedSwot: entitySwot } }
             : e
         )
-        await projectsApi.save(project.id, { ...project, entities: updatedEntities })
+        await projectsApi.save(project!.id, { ...project, entities: updatedEntities })
       } else {
-        await aiApi.consolidateSwot(project.id)
+        await aiApi.consolidateSwot(project!.id)
       }
-      const res = await projectsApi.get(project.id)
+      const res = await projectsApi.get(project!.id)
       setProject(res.data)
     } catch (e: any) {
       alert('Error: ' + (e.response?.data?.error || e.message))
@@ -57,16 +57,16 @@ export default function SwotPage() {
 
   async function saveHypothesis() {
     if (activeEntity) {
-      const updatedEntities = (project.entities || []).map((e: any) =>
+      const updatedEntities = (project!.entities || []).map((e: any) =>
         e.id === activeEntity.id
           ? { ...e, assessment: { ...e.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } }
           : e
       )
-      await projectsApi.save(project.id, { ...project, entities: updatedEntities })
+      await projectsApi.save(project!.id, { ...project, entities: updatedEntities })
     } else {
-      await projectsApi.save(project.id, { assessment: { ...project.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } })
+      await projectsApi.save(project!.id, { assessment: { ...project!.assessment, strategicHypothesis: { ...hypothesis, edited: hypoEdit } } })
     }
-    const res = await projectsApi.get(project.id)
+    const res = await projectsApi.get(project!.id)
     setProject(res.data)
     setEditingHypo(false)
   }

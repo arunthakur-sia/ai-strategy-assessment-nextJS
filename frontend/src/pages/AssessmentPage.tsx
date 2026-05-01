@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useStore } from '../store/useStore'
 import { projectsApi, aiApi } from '../api'
+import { startPillarAssessment, startBatchAssessment } from '../services/assessmentService'
 import { CitedText, type Citation } from '../components/CitedText'
 import { Play, CheckCircle, Loader2, ChevronDown, ChevronUp, Edit3, Save, X, MessageSquare, AlertCircle, Send, BarChart2, BookOpen, RefreshCw, ExternalLink } from 'lucide-react'
 
@@ -167,11 +168,11 @@ export default function AssessmentPage() {
 
   async function savePillar(data: any) {
     if (activeEntity) {
-      await projectsApi.updateEntityPillar(project.id, activeEntity.id, activePillar, data)
+      await projectsApi.updateEntityPillar(project!.id, activeEntity.id, activePillar, data)
     } else {
-      await projectsApi.updatePillar(project.id, activePillar, data)
+      await projectsApi.updatePillar(project!.id, activePillar, data)
     }
-    const res = await projectsApi.get(project.id)
+    const res = await projectsApi.get(project!.id)
     setProject(res.data)
   }
 
@@ -183,7 +184,7 @@ export default function AssessmentPage() {
     setStreamText('')
     setAssessError(null)
     startPillarAssessment(
-      project.id,
+      project!.id,
       activeEntity?.id ?? null,
       activePillar,
       {
@@ -228,7 +229,7 @@ export default function AssessmentPage() {
     let aiText = ''
     setChatMessages((msgs: any[]) => [...msgs, { role: 'assistant', content: '', streaming: true }])
     try {
-      for await (const data of aiApi.chat(project.id, newMessages, { pillarId: activePillar })) {
+      for await (const data of aiApi.chat(project!.id, newMessages, { pillarId: activePillar })) {
         if (data.chunk) {
           aiText += data.chunk
           setChatMessages((msgs: any[]) => msgs.map((m: any, i: number) => i === msgs.length - 1 ? { ...m, content: aiText } : m))
@@ -246,8 +247,8 @@ export default function AssessmentPage() {
   async function loadBenchmarks() {
     setLoadingBenchmarks(true)
     try {
-      await aiApi.benchmarks(project.id, activePillar, activeEntityId)
-      const updated = await projectsApi.get(project.id)
+      await aiApi.benchmarks(project!.id, activePillar, activeEntityId)
+      const updated = await projectsApi.get(project!.id)
       setProject(updated.data)
       setExpandedSections(prev => ({ ...prev, benchmarks: true }))
     } catch (e: any) {
@@ -282,7 +283,7 @@ export default function AssessmentPage() {
     }
     setAssessError(null)
     startBatchAssessment(
-      project.id,
+      project!.id,
       activeEntity?.id ?? null,
       ids,
       {
@@ -651,7 +652,7 @@ export default function AssessmentPage() {
                           <div>
                             <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sia-medium-gray)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🤖 Generated Analysis</div>
                             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {lines.map((line, li) => (
+                              {(lines as string[]).map((line: string, li: number) => (
                                 <li key={li} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--sia-cool-gray)', lineHeight: 1.55 }}>
                                   <span style={{ color: 'var(--sia-teal)', flexShrink: 0, fontWeight: 700, marginTop: '1px' }}>•</span>
                                   <CitedText text={line.replace(/^•\s*/, '')} onCiteClick={c => { setActiveSourceNum(c.num); setSourcesOpen(true) }} />

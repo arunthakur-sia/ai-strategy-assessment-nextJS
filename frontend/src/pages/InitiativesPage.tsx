@@ -33,18 +33,18 @@ export default function InitiativesPage() {
 
   async function saveStrategy(newNodes: any[]) {
     if (activeEntity) {
-      await projectsApi.updateEntityStrategy(project.id, activeEntity.id, { nodes: newNodes })
+      await projectsApi.updateEntityStrategy(project!.id, activeEntity.id, { nodes: newNodes })
     } else {
-      await projectsApi.updateStrategy(project.id, { nodes: newNodes })
+      await projectsApi.updateStrategy(project!.id, { nodes: newNodes })
     }
-    const res = await projectsApi.get(project.id)
+    const res = await projectsApi.get(project!.id)
     setProject(res.data)
   }
 
   async function generateInitiatives(objectiveNode: any) {
     setGenerating(objectiveNode.id)
     try {
-      const res = await aiApi.generateStrategy(project.id, 'initiatives', { objectiveTitle: objectiveNode.title, entityId: activeEntityId || undefined })
+      const res = await aiApi.generateStrategy(project!.id, 'initiatives', { objectiveTitle: objectiveNode.title, entityId: activeEntityId || undefined })
       const { initiatives } = res.data.data
       const newNodes = [...nodes]
       for (const init of (initiatives || [])) {
@@ -72,7 +72,7 @@ export default function InitiativesPage() {
   async function generateProjects(initNode: any) {
     setGenerating(`proj_${initNode.id}`)
     try {
-      const res = await aiApi.generateStrategy(project.id, 'projects', { initiativeTitle: initNode.title, entityId: activeEntityId || undefined })
+      const res = await aiApi.generateStrategy(project!.id, 'projects', { initiativeTitle: initNode.title, entityId: activeEntityId || undefined })
       const { projects } = res.data.data
       const newNodes = [...nodes]
       for (const proj of (projects || [])) {
