@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore'
-import { projectsApi } from '../api'
+import { projectsApi, storeProjectToken } from '../api'
 import { Plus, Lock, ArrowRight, Building2, Loader2, Trash2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 
 const ENTITY_TYPES = [
@@ -64,6 +64,7 @@ export default function LandingPage() {
     setLoading(true); setError('')
     try {
       const res = await projectsApi.create({ ...form, entities: validSubs })
+      if (res.data.token) storeProjectToken(res.data.id, res.data.token)
       const proj = await projectsApi.get(res.data.id)
       setProject(proj.data)
       setAuthenticated(true)
@@ -77,7 +78,8 @@ export default function LandingPage() {
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      await projectsApi.unlock(selectedProject.id, unlockPassword)
+      const res = await projectsApi.unlock(selectedProject.id, unlockPassword)
+      if (res.data.token) storeProjectToken(selectedProject.id, res.data.token)
       const proj = await projectsApi.get(selectedProject.id)
       setProject(proj.data)
       setAuthenticated(true)

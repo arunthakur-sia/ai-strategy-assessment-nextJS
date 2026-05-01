@@ -3,10 +3,44 @@ import { CONFIG } from '../config'
 
 const BASE_URL = CONFIG.API_URL
 
+// ── Token store (Safari ITP workaround) ──────────────────────────────────────
+// Safari blocks cross-domain cookies even with SameSite=None.
+// We store project tokens in localStorage and send them via Authorization header.
+const _tokens: Record<string, string> = JSON.parse(
+  localStorage.getItem('sia_project_tokens') || '{}'
+)
+
+export function storeProjectToken(projectId: string, token: string): void {
+  _tokens[projectId] = token
+  localStorage.setItem('sia_project_tokens', JSON.stringify(_tokens))
+}
+
+export function getProjectToken(projectId: string): string | null {
+  return _tokens[projectId] || null
+}
+
+// Returns auth headers for fetch-based SSE calls
+export function authHeaders(projectId: string): Record<string, string> {
+  const token = getProjectToken(projectId)
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const api = axios.create({
   baseURL: `${BASE_URL}/api`,
   withCredentials: true,
   timeout: 60000,
+})
+
+// Attach Authorization header from localStorage token for every request
+api.interceptors.request.use(config => {
+  const match = (config.url || '').match(/\/projects\/([0-9a-f-]{36})/)
+  if (match) {
+    const token = getProjectToken(match[1])
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
 })
 
 api.interceptors.response.use(
@@ -65,7 +99,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/generate-report/${reportType}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: entityId ? JSON.stringify({ entityId }) : undefined,
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
@@ -94,7 +128,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/generate-reports-batch`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: JSON.stringify({ entityIds, reportTypes }),
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
@@ -125,7 +159,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/chat`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: JSON.stringify({ messages, context }),
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
@@ -153,7 +187,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess/${pillarId}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
     const reader = resp.body!.getReader()
@@ -180,7 +214,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess-batch`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: JSON.stringify({ pillarIds }),
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
@@ -208,7 +242,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/${entityId}/assess/${pillarId}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
     const reader = resp.body!.getReader()
@@ -232,7 +266,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/${entityId}/assess-batch`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: JSON.stringify({ pillarIds }),
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }
@@ -257,7 +291,7 @@ export const aiApi = {
     const resp = await fetch(`${BASE_URL}/api/ai/${projectId}/assess-entities`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
       body: JSON.stringify({ entityIds }),
     })
     if (!resp.ok) { yield { error: `HTTP ${resp.status}` }; return }

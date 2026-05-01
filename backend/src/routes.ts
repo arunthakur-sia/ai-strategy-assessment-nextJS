@@ -26,6 +26,17 @@ const GENERATED_DIR = path.join(UPLOADS_DIR, 'generated')
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true })
 
+// Token-based auth: cross-origin Bearer tokens stored in-process.
+// Solves Safari ITP which blocks SameSite=None cookies on cross-domain fetch.
+const _projectTokens = new Map<string, string>() // token → projectId
+
+function generateProjectToken(projectId: string): string {
+  const token = uuidv4()
+  _projectTokens.set(token, projectId)
+  setTimeout(() => _projectTokens.delete(token), 8 * 60 * 60 * 1000)
+  return token
+}
+
 async function loadProject(id: string): Promise<any | null> {
   const { data, error } = await supabase.from('projects').select('data').eq('id', id).single()
   if (error || !data) return null
@@ -48,6 +59,10 @@ async function saveProject(project: any) {
 
 function requireSession(req: Request, res: Response, next: NextFunction) {
   const projectId = req.params.id || req.params.projectId || req.body?.projectId
+  // Bearer token check — works cross-origin on all browsers (including Safari ITP)
+  const auth = req.headers.authorization
+  if (auth?.startsWith('Bearer ') && _projectTokens.get(auth.slice(7)) === projectId) return next()
+  // Cookie session fallback
   const session = (req as any).session
   if (session?.unlockedProjects?.includes(projectId)) return next()
   res.status(401).json({ error: 'Not authenticated for this project' })
@@ -789,7 +804,8 @@ export function registerRoutes(httpServer: any, app: Express) {
       const session = (req as any).session
       if (!session.unlockedProjects) session.unlockedProjects = []
       session.unlockedProjects.push(project.id)
-      res.json({ id: project.id, name: project.name, entityName: project.entityName, entityCount: project.entities.length })
+      const token = generateProjectToken(project.id)
+      res.json({ id: project.id, token, name: project.name, entityName: project.entityName, entityCount: project.entities.length })
     } catch (err: any) { res.status(500).json({ error: err.message }) }
   })
 
@@ -803,7 +819,8 @@ export function registerRoutes(httpServer: any, app: Express) {
       const session = (req as any).session
       if (!session.unlockedProjects) session.unlockedProjects = []
       if (!session.unlockedProjects.includes(project.id)) session.unlockedProjects.push(project.id)
-      res.json({ success: true, id: project.id, name: project.name, entityName: project.entityName })
+      const token = generateProjectToken(project.id)
+      res.json({ success: true, token, id: project.id, name: project.name, entityName: project.entityName })
     } catch (err: any) { res.status(500).json({ error: err.message }) }
   })
 
