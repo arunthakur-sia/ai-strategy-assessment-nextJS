@@ -12,6 +12,10 @@ import { serveStaticFrontend } from './static.js'
 const app = express()
 const httpServer = createServer(app)
 
+// Trust Railway's reverse proxy so Express sees HTTPS correctly
+// (required for secure cookies and correct req.ip)
+app.set('trust proxy', 1)
+
 app.use(cors({
   origin: config.frontendUrl,
   credentials: true,
