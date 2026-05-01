@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
+import crypto from 'crypto'
 import { v4 as uuidv4 } from 'uuid'
 import { supabase } from './db.js'
 import { config } from './config.js'
@@ -26,15 +27,30 @@ const GENERATED_DIR = path.join(UPLOADS_DIR, 'generated')
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true })
 
-// Token-based auth: cross-origin Bearer tokens stored in-process.
-// Solves Safari ITP which blocks SameSite=None cookies on cross-domain fetch.
-const _projectTokens = new Map<string, string>() // token → projectId
+// Token-based auth: stateless HMAC tokens.
+// Encoding projectId + expiry signed with sessionSecret means every instance
+// can verify tokens independently — no shared in-process state required.
+const TOKEN_TTL_MS = 8 * 60 * 60 * 1000
 
 function generateProjectToken(projectId: string): string {
-  const token = uuidv4()
-  _projectTokens.set(token, projectId)
-  setTimeout(() => _projectTokens.delete(token), 8 * 60 * 60 * 1000)
-  return token
+  const expires = (Date.now() + TOKEN_TTL_MS).toString(36)
+  const payload = Buffer.from(`${projectId}|${expires}`).toString('base64url')
+  const sig = crypto.createHmac('sha256', config.sessionSecret).update(payload).digest('base64url')
+  return `${payload}.${sig}`
+}
+
+function verifyProjectToken(token: string, expectedProjectId: string): boolean {
+  const dot = token.lastIndexOf('.')
+  if (dot === -1) return false
+  const payload = token.slice(0, dot)
+  const sig = token.slice(dot + 1)
+  const expectedSig = crypto.createHmac('sha256', config.sessionSecret).update(payload).digest('base64url')
+  if (sig !== expectedSig) return false
+  let decoded: string
+  try { decoded = Buffer.from(payload, 'base64url').toString() } catch { return false }
+  const pipe = decoded.indexOf('|')
+  if (pipe === -1) return false
+  return decoded.slice(0, pipe) === expectedProjectId && Date.now() < parseInt(decoded.slice(pipe + 1), 36)
 }
 
 async function loadProject(id: string): Promise<any | null> {
@@ -61,7 +77,7 @@ function requireSession(req: Request, res: Response, next: NextFunction) {
   const projectId = req.params.id || req.params.projectId || req.body?.projectId
   // Bearer token check — works cross-origin on all browsers (including Safari ITP)
   const auth = req.headers.authorization
-  if (auth?.startsWith('Bearer ') && _projectTokens.get(auth.slice(7)) === projectId) return next()
+  if (auth?.startsWith('Bearer ') && verifyProjectToken(auth.slice(7), projectId)) return next()
   // Cookie session fallback
   const session = (req as any).session
   if (session?.unlockedProjects?.includes(projectId)) return next()
@@ -805,7 +821,8 @@ export function registerRoutes(httpServer: any, app: Express) {
       if (!session.unlockedProjects) session.unlockedProjects = []
       session.unlockedProjects.push(project.id)
       const token = generateProjectToken(project.id)
-      res.json({ id: project.id, token, name: project.name, entityName: project.entityName, entityCount: project.entities.length })
+      const { passwordHash: _ph, ...safeProject } = project
+      res.json({ token, project: safeProject })
     } catch (err: any) { res.status(500).json({ error: err.message }) }
   })
 
@@ -820,7 +837,8 @@ export function registerRoutes(httpServer: any, app: Express) {
       if (!session.unlockedProjects) session.unlockedProjects = []
       if (!session.unlockedProjects.includes(project.id)) session.unlockedProjects.push(project.id)
       const token = generateProjectToken(project.id)
-      res.json({ success: true, token, id: project.id, name: project.name, entityName: project.entityName })
+      const { passwordHash: _ph2, ...safeProject } = project
+      res.json({ success: true, token, project: safeProject })
     } catch (err: any) { res.status(500).json({ error: err.message }) }
   })
 

@@ -64,9 +64,8 @@ export default function LandingPage() {
     setLoading(true); setError('')
     try {
       const res = await projectsApi.create({ ...form, entities: validSubs })
-      if (res.data.token) storeProjectToken(res.data.id, res.data.token)
-      const proj = await projectsApi.get(res.data.id)
-      setProject(proj.data)
+      if (res.data.token) storeProjectToken(res.data.project.id, res.data.token)
+      setProject(res.data.project)
       setAuthenticated(true)
       navigate('/app/dashboard')
     } catch (e: any) {
@@ -80,8 +79,7 @@ export default function LandingPage() {
     try {
       const res = await projectsApi.unlock(selectedProject.id, unlockPassword)
       if (res.data.token) storeProjectToken(selectedProject.id, res.data.token)
-      const proj = await projectsApi.get(selectedProject.id)
-      setProject(proj.data)
+      setProject(res.data.project)
       setAuthenticated(true)
       navigate('/app/dashboard')
     } catch (e: any) {
@@ -94,8 +92,8 @@ export default function LandingPage() {
     if (!deletingProject) return
     setDeleteLoading(true); setDeleteError('')
     try {
-      // Unlock first to satisfy requireSession, then delete
-      await projectsApi.unlock(deletingProject.id, deletePassword)
+      const unlockRes = await projectsApi.unlock(deletingProject.id, deletePassword)
+      if (unlockRes.data.token) storeProjectToken(deletingProject.id, unlockRes.data.token)
       await projectsApi.delete(deletingProject.id)
       setDeletingProject(null)
       setDeletePassword('')
