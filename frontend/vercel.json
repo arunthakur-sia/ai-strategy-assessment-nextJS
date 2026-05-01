@@ -3,7 +3,7 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "env": {
-    "VITE_API_URL": "@sia-api-url"
+    "VITE_API_URL": "authentic-reverence-production-45b9.up.railway.app"
   },
   "headers": [
     {
