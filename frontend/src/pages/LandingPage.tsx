@@ -14,7 +14,17 @@ const ENTITY_TYPES = [
 
 export default function LandingPage() {
   const navigate = useNavigate()
-  const { setProject, setAuthenticated } = useStore()
+  const { setProject, setAuthenticated, isAuthenticated, project } = useStore()
+
+  // Navigate only after React has committed the auth state — prevents the
+  // concurrent-mode race where ProtectedRoute sees stale state and fires
+  // <Navigate to="/" replace />, stranding the user on the landing page.
+  useEffect(() => {
+    if (isAuthenticated && project) {
+      navigate('/app/dashboard', { replace: true })
+    }
+  }, [isAuthenticated, project])
+
   const [projects, setProjects] = useState<any[]>([])
   const [mode, setMode] = useState<'list' | 'create' | 'unlock'>('list')
   const [selectedProject, setSelectedProject] = useState<any>(null)
@@ -67,7 +77,7 @@ export default function LandingPage() {
       if (res.data.token) storeProjectToken(res.data.project.id, res.data.token)
       setProject(res.data.project)
       setAuthenticated(true)
-      navigate('/app/dashboard')
+      // navigation is handled by the useEffect above
     } catch (e: any) {
       setError(e.response?.data?.error || 'Failed to create project')
     } finally { setLoading(false) }
@@ -81,7 +91,7 @@ export default function LandingPage() {
       if (res.data.token) storeProjectToken(selectedProject.id, res.data.token)
       setProject(res.data.project)
       setAuthenticated(true)
-      navigate('/app/dashboard')
+      // navigation is handled by the useEffect above
     } catch (e: any) {
       setError(e.response?.data?.error || 'Invalid password')
     } finally { setLoading(false) }
