@@ -71,6 +71,7 @@ export default function SetupPage() {
   const [showAddEntityForm, setShowAddEntityForm] = useState(false)
   const [newEntityName, setNewEntityName] = useState('')
   const [newEntityType, setNewEntityType] = useState('corporate')
+  const [entityAddError, setEntityAddError] = useState('')
 
   if (!project) return null
 
@@ -206,15 +207,17 @@ export default function SetupPage() {
   async function handleAddEntity() {
     if (!newEntityName.trim()) return
     setAddingEntity(true)
+    setEntityAddError('')
     try {
       await entitiesApi.add(project!.id, { name: newEntityName.trim(), type: newEntityType })
       const updated = await projectsApi.get(project!.id)
       setProject(updated.data)
       setNewEntityName('')
       setNewEntityType('corporate')
+      setEntityAddError('')
       setShowAddEntityForm(false)
     } catch (e: any) {
-      alert('Failed to add entity: ' + (e.response?.data?.error || e.message))
+      setEntityAddError(e.response?.data?.error || 'Failed to add entity. Please try again.')
     }
     setAddingEntity(false)
   }
@@ -539,8 +542,14 @@ export default function SetupPage() {
                 <button className="btn btn-primary btn-sm" onClick={handleAddEntity} disabled={addingEntity || !newEntityName.trim()}>
                   {addingEntity ? <Loader2 size={12} className="spinner" /> : <Plus size={12} />} Add
                 </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddEntityForm(false); setNewEntityName('') }}>Cancel</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddEntityForm(false); setNewEntityName(''); setEntityAddError('') }}>Cancel</button>
               </div>
+              {entityAddError && (
+                <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: 'var(--radius)', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '13px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                  <span style={{ flexShrink: 0, fontWeight: 700 }}>&#x26A0;</span>
+                  <span>{entityAddError}</span>
+                </div>
+              )}
             </div>
           )}
 

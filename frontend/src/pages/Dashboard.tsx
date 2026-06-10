@@ -34,7 +34,7 @@ function entityCompletion(entity: SubsidiaryEntity): number {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { project, setProject, getOverallScore, getCompletionPercent, getRag, activeEntityId, setActiveEntityId, setSourcesOpen, setActiveSourceNum } = useStore()
+  const { project, setProject, getOverallScore, getCompletionPercent, getRag, activeEntityId, setActiveEntityId, setSourcesOpen, setActiveSourceNum, pendingWarnings, setPendingWarnings } = useStore()
   const [runningAll, setRunningAll] = useState(false)
   const [runningPillars, setRunningPillars] = useState<Set<string>>(new Set())
   const [runProgress, setRunProgress] = useState<{ done: number; total: number; errors: string[] } | null>(null)
@@ -50,11 +50,24 @@ export default function Dashboard() {
   const [newEntityName, setNewEntityName] = useState('')
   const [newEntityType, setNewEntityType] = useState('corporate')
   const [addingEntity, setAddingEntity] = useState(false)
+  const [addEntityError, setAddEntityError] = useState('')
   const [expandedEntities, setExpandedEntities] = useState<Set<string>>(new Set())
 
   if (!project) return null
 
   const entities: SubsidiaryEntity[] = project.entities || []
+
+  // Dismissable banner for entities that failed collection creation during project initialisation
+  const warningBanner = pendingWarnings.length > 0 ? (
+    <div style={{ margin: '0 0 20px', padding: '14px 18px', borderRadius: 'var(--radius)', background: '#FEF3C7', border: '1px solid #FCD34D', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+      <AlertTriangle size={18} color="#B45309" style={{ flexShrink: 0, marginTop: '1px' }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: '13px', color: '#92400E', marginBottom: '4px' }}>Some entities were not added</div>
+        {pendingWarnings.map((w, i) => <div key={i} style={{ fontSize: '13px', color: '#78350F' }}>{w}</div>)}
+      </div>
+      <button onClick={() => setPendingWarnings([])} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B45309', fontSize: '18px', lineHeight: 1, padding: 0, marginLeft: '4px' }} title="Dismiss">✕</button>
+    </div>
+  ) : null
   const activeEntity = activeEntityId ? entities.find(e => e.id === activeEntityId) : null
   const pillars = activeEntity ? activeEntity.assessment.pillars : project.assessment.pillars
   const overallScore = activeEntity ? entityOverallScore(activeEntity) : getOverallScore()
@@ -211,15 +224,17 @@ export default function Dashboard() {
   async function handleAddEntity() {
     if (!newEntityName.trim()) return
     setAddingEntity(true)
+    setAddEntityError('')
     try {
       await entitiesApi.add(project!.id, { name: newEntityName.trim(), type: newEntityType })
       const res = await projectsApi.get(project!.id)
       setProject(res.data)
       setNewEntityName('')
       setNewEntityType('corporate')
+      setAddEntityError('')
       setShowAddEntity(false)
     } catch (e: any) {
-      alert('Failed to add entity: ' + (e.response?.data?.error || e.message))
+      setAddEntityError(e.response?.data?.error || 'Failed to add entity. Please try again.')
     } finally {
       setAddingEntity(false)
     }
@@ -258,6 +273,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ flex: 1, overflow: 'auto', padding: '32px', maxWidth: '1400px' }}>
+      {warningBanner}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: activeEntity ? '16px' : '32px' }}>
         <div>
           <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px', fontWeight: 600 }}>Assessment Dashboard</div>
@@ -346,7 +362,13 @@ export default function Dashboard() {
                 {addingEntity ? <Loader2 size={12} className="spinner" /> : <Plus size={12} />}
                 Add
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddEntity(false); setNewEntityName('') }}>Cancel</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddEntity(false); setNewEntityName(''); setAddEntityError('') }}>Cancel</button>
+            </div>
+          )}
+          {addEntityError && showAddEntity && (
+            <div style={{ margin: '-10px 0 14px', padding: '10px 14px', borderRadius: 'var(--radius)', background: '#FEF2F2', border: '1px solid #FECACA', color: '#B91C1C', fontSize: '13px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <AlertTriangle size={14} color="#B91C1C" style={{ flexShrink: 0, marginTop: '1px' }} />
+              <span>{addEntityError}</span>
             </div>
           )}
 

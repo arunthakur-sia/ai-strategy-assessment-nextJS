@@ -1,4 +1,4 @@
-import { BookOpen, Pencil, Check, X, RotateCcw } from 'lucide-react'
+import { BookOpen, Pencil, Check, X, RotateCcw, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
 import EntityBanner from '../components/EntityBanner'
@@ -92,6 +92,14 @@ const PILLARS = [
         developing:  'Performance framework in place but incentives weakly linked to strategic outcomes',
         strong:      'Robust performance management with KPI cascading, regular reviews, and consequence management',
         excellent:   'Performance culture fully embedded; transparent metrics, real-time tracking, and merit-based accountability',
+      },
+      {
+        name: 'Parenting Style',
+        critical:    'No defined parenting model; the holding exercises no discernible governance role',
+        weak:        'Holding acts purely as a passive financial owner; no strategic or operational support is extended',
+        developing:  'Parenting style is partially defined (e.g., financial holding with selective strategic input) but inconsistently applied across the portfolio',
+        strong:      'Clear parenting model is defined, documented, and consistently applied across subsidiaries with measurable value-add',
+        excellent:   'Best-in-class parenting model; precisely calibrated per subsidiary, dynamically adjusted, recognized as primary value driver',
       },
     ],
   },
@@ -391,6 +399,7 @@ export default function RubricPage() {
   const [editMode, setEditMode] = useState(false)
   const [editedRubric, setEditedRubric] = useState<RubricOverrides>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [showRerunBanner, setShowRerunBanner] = useState(false)
 
   const pillar = PILLARS.find(p => p.id === activePillarId)!
   const entities = project?.entities || []
@@ -400,6 +409,7 @@ export default function RubricPage() {
   const activeOverrides = editMode ? editedRubric : savedRubric
 
   function handleEdit() {
+    setShowRerunBanner(false)
     // Seed edit state with fully resolved content (defaults merged with any saved overrides)
     // so saving preserves all cells, not just ones previously touched.
     const seed: RubricOverrides = {}
@@ -436,6 +446,7 @@ export default function RubricPage() {
       await projectsApi.saveRubric(project.id, editedRubric)
       updateRubric(editedRubric)
       setEditMode(false)
+      setShowRerunBanner(true)
     } catch (err) {
       console.error('Failed to save rubric', err)
     } finally {
@@ -543,6 +554,20 @@ export default function RubricPage() {
             )}
           </div>
         </div>
+
+        {/* Re-run banner */}
+        {showRerunBanner && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 16px', marginBottom: '18px', background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '8px' }}>
+            <AlertCircle size={16} color="#92400E" style={{ flexShrink: 0, marginTop: '1px' }} />
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#92400E' }}>Rubric updated. </span>
+              <span style={{ fontSize: '12px', color: '#78350F' }}>Re-run pillar assessments to apply the new scoring criteria to your analysis.</span>
+            </div>
+            <button onClick={() => setShowRerunBanner(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', padding: '0', lineHeight: 1 }}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Band legend */}
         <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', flexWrap: 'wrap' }}>

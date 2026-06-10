@@ -75,6 +75,7 @@ export default function LandingPage() {
     try {
       const res = await projectsApi.create({ ...form, entities: validSubs })
       if (res.data.token) storeProjectToken(res.data.project.id, res.data.token)
+      if (res.data.warnings?.length) useStore.getState().setPendingWarnings(res.data.warnings)
       setProject(res.data.project)
       setAuthenticated(true)
       // navigation is handled by the useEffect above

@@ -113,8 +113,11 @@ interface StoreState {
   activeSourceNum: number | null
   /** Resolved source metadata (num → { title, url }) populated by SourcesPanel after batch-fetch */
   globalSourceMeta: Record<string, { title: string; url: string | null }>
+  /** Warnings from project creation (e.g. entities whose collection creation failed) shown once on Dashboard */
+  pendingWarnings: string[]
 
   setProject: (project: Project | null) => void
+  setPendingWarnings: (warnings: string[]) => void
   setAuthenticated: (val: boolean) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -162,8 +165,10 @@ export const useStore = create<StoreState>((set, get) => ({
   globalSourceMeta: {},
   assessmentRunning: false,
   assessmentRunningPillars: {},
+  pendingWarnings: [],
 
   setProject: (project) => set({ project: project ? { ...project, entities: project.entities || [] } : null, currentProjectId: project?.id ?? null }),
+  setPendingWarnings: (warnings) => set({ pendingWarnings: warnings }),
   setAuthenticated: (val) => set({ isAuthenticated: val }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
@@ -263,5 +268,5 @@ export const useStore = create<StoreState>((set, get) => ({
     project: s.project ? { ...s.project, rubric: rubricData } : null
   })),
 
-  logout: () => set({ project: null, currentProjectId: null, isAuthenticated: false, activeEntityId: null, assessmentRunning: false, assessmentRunningPillars: {} }),
+  logout: () => set({ project: null, currentProjectId: null, isAuthenticated: false, activeEntityId: null, assessmentRunning: false, assessmentRunningPillars: {}, pendingWarnings: [] }),
 }))
