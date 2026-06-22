@@ -1,10 +1,14 @@
 {
   "framework": "nextjs",
   "functions": {
-    "app/api/ai/**/*.ts": { "maxDuration": 300 },
+    "app/api/ai/[projectId]/generate-reports-batch/route.ts": { "maxDuration": 800 },
+    "app/api/ai/[projectId]/assess-entities/route.ts": { "maxDuration": 800 },
+    "app/api/ai/[projectId]/assess-batch/route.ts": { "maxDuration": 800 },
+    "app/api/ai/[projectId]/[entityId]/assess-batch/route.ts": { "maxDuration": 800 },
+    "app/api/ai/**/*.ts": { "maxDuration": 720 },
     "app/api/export/**/*.ts": { "maxDuration": 60 },
-    "app/api/projects/**/*.ts": { "maxDuration": 60 },
-    "app/api/documents/**/*.ts": { "maxDuration": 120 }
+    "app/api/documents/**/*.ts": { "maxDuration": 120 },
+    "app/api/projects/**/*.ts": { "maxDuration": 60 }
   },
   "headers": [
     {

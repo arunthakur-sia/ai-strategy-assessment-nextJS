@@ -6,7 +6,7 @@ import fs from 'fs'
 import path from 'path'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+export const maxDuration = 720
 
 const rubricPath = path.join(process.cwd(), 'data', 'rubric.json')
 

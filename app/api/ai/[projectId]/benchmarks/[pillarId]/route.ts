@@ -6,7 +6,7 @@ import { config } from '@/lib/server/config'
 import { buildSystemPrompt } from '@/lib/server/prompts'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+export const maxDuration = 720
 
 export async function POST(
   request: NextRequest,

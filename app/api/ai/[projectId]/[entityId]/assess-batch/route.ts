@@ -8,7 +8,7 @@ import { createSSEStream } from '@/lib/server/sse'
 import { log } from '@/lib/server/logger'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+export const maxDuration = 800
 
 const MAX_RETRIES = 2
 

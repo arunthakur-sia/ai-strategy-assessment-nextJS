@@ -7,7 +7,7 @@ import { buildAssessmentPrompt } from '@/lib/server/prompts'
 import { createSSEStream } from '@/lib/server/sse'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300 // 12 minutes
+export const maxDuration = 720 // 12 minutes
 
 export async function POST(
   request: NextRequest,

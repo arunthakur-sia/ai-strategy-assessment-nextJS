@@ -7,7 +7,7 @@ import { buildReportPrompts, cleanReportContent } from '@/lib/server/prompts'
 import { createSSEStream } from '@/lib/server/sse'
 
 export const runtime = 'nodejs'
-export const maxDuration = 300
+export const maxDuration = 800
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
