@@ -4,7 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'SIA Strategy Assessment Agent',
   description: 'AI-powered organizational strategy assessment platform',
-  icons: { icon: '/favicon.png' },
+  icons: { icon: '/favicon-sia.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
