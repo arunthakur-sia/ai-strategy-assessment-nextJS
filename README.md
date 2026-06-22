@@ -158,6 +158,32 @@ export/
 
 ---
 
+## Running Locally (Dev Mode)
+
+Requires Node.js 20+ and both `.env` files already configured (copy from `.env.example` if needed).
+
+**Terminal 1 — Backend**
+
+```bash
+cd backend
+npm install
+npm run dev
+# API server starts on http://localhost:3001
+```
+
+**Terminal 2 — Frontend**
+
+```bash
+cd frontend
+npm install
+npm run dev
+# UI starts on http://localhost:5173
+```
+
+Open **http://localhost:5173** in your browser.
+
+---
+
 ## License
 
 Proprietary — SIA Partners internal tooling. Do not distribute externally without authorisation.
