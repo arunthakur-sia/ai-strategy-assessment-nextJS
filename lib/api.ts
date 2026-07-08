@@ -120,8 +120,6 @@ export const aiApi = {
   consolidateSwot: (projectId: string) => api.post(`/ai/${projectId}/consolidate-swot`, {}, { timeout: 180000 }),
   generateStrategy: (projectId: string, task: string, context: any) => api.post(`/ai/${projectId}/strategy/generate`, { task, context }),
   benchmarks: (projectId: string, pillarId: string, entityId?: string | null) => api.post(`/ai/${projectId}/benchmarks/${pillarId}`, entityId ? { entityId } : {}),
-  generateRubric: () => api.post('/rubric/generate'),
-  getRubric: () => api.get('/rubric'),
 
   generateReport: async function* (projectId: string, reportType: string, entityId?: string) {
     yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/generate-report/${reportType}`, {

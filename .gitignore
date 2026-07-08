@@ -19,9 +19,6 @@ data/local_db.json
 uploads/
 public/uploads/
 
-# ── Rubric cache ──────────────────────────────────────────────────────────────
-data/rubric.json
-
 # ── Build artifacts ───────────────────────────────────────────────────────────
 dist/
 build/

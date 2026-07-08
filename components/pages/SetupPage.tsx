@@ -46,12 +46,6 @@ const ENTITY_TYPES = [
   { value: 'other', label: 'Other' },
 ]
 
-const STRATEGY_TEMPLATES = [
-  { value: 'government', label: 'Government', desc: 'Vision → Strategic Options → Outcomes → KPIs → Initiatives → Projects' },
-  { value: 'corporate', label: 'Corporate', desc: 'Vision → Mission → Strategic Pillars → Objectives → KPIs → Initiatives' },
-  { value: 'custom', label: 'Custom', desc: 'Define your own hierarchy (2–6 levels)' },
-]
-
 export default function SetupPage() {
   const { project, setProject } = useStore()
   const [activeTab, setActiveTab] = useState('entity')
@@ -650,22 +644,6 @@ export default function SetupPage() {
           <div className="card" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '4px' }}>Web Search Enrichment</div>
-                <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', maxWidth: '500px' }}>When enabled, the AI will search for industry benchmarks and market data to enrich each pillar assessment with external context.</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '13px', color: project.webEnrichmentEnabled ? 'var(--sia-teal)' : 'var(--sia-medium-gray)', fontWeight: 600 }}>{project.webEnrichmentEnabled ? 'ON' : 'OFF'}</span>
-                <button data-testid="toggle-web-enrichment" onClick={() => saveField('webEnrichmentEnabled', !project.webEnrichmentEnabled)}
-                  style={{ width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer', background: project.webEnrichmentEnabled ? 'var(--sia-teal)' : 'rgba(69,85,105,0.2)', position: 'relative', transition: 'background 0.2s' }}>
-                  <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: project.webEnrichmentEnabled ? '25px' : '3px', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
                 <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '4px' }}>Stakeholder Interview Mode</div>
                 <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', maxWidth: '500px' }}>Adds an interview score input field to each pillar element. Final score = weighted average of AI score + manual override + interview score.</div>
               </div>
@@ -676,41 +654,6 @@ export default function SetupPage() {
                   <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'white', position: 'absolute', top: '3px', left: project.interviewModeEnabled ? '25px' : '3px', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
                 </button>
               </div>
-            </div>
-          </div>
-
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '16px' }}>Strategy Hierarchy Template</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {STRATEGY_TEMPLATES.map(t => (
-                <div key={t.value} data-testid={`template-${t.value}`} onClick={() => saveField('strategyTemplate', t.value)}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '14px', border: `2px solid ${project.strategyTemplate === t.value ? 'var(--sia-teal)' : 'rgba(69,85,105,0.15)'}`, borderRadius: 'var(--radius)', cursor: 'pointer', background: project.strategyTemplate === t.value ? 'rgba(0,222,204,0.04)' : 'transparent', transition: 'all 0.15s' }}>
-                  <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: `2px solid ${project.strategyTemplate === t.value ? 'var(--sia-teal)' : 'rgba(69,85,105,0.3)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                    {project.strategyTemplate === t.value && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--sia-teal)' }} />}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '3px' }}>{t.label}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--sia-cool-gray)', fontFamily: 'monospace' }}>{t.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="card" style={{ padding: '24px' }}>
-            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '4px' }}>Pillar Weights for Overall Score</div>
-            <div style={{ fontSize: '13px', color: 'var(--sia-cool-gray)', marginBottom: '16px' }}>Adjust relative importance of each pillar in the overall maturity score (default: all equal)</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              {Object.entries(project.assessment.pillars).map(([id, p]: [string, any]) => (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--sia-navy)', width: '24px' }}>{id}</span>
-                  <div style={{ flex: 1, fontSize: '12px', color: 'var(--sia-cool-gray)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name.split(' ').slice(0,3).join(' ')}</div>
-                  <input type="number" min="0.5" max="3" step="0.5" style={{ width: '56px', padding: '4px 8px', border: '1px solid rgba(69,85,105,0.2)', borderRadius: '6px', fontSize: '12px', textAlign: 'center' }}
-                    defaultValue={(project.pillarWeights as any)?.[id] || 1}
-                    onBlur={e => saveField('pillarWeights', { ...(project.pillarWeights || {}), [id]: parseFloat(e.target.value) || 1 })}
-                  />
-                </div>
-              ))}
             </div>
           </div>
         </div>

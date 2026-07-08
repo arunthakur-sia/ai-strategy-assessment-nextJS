@@ -208,16 +208,16 @@ export default function AssessmentPage() {
     await savePillar({ elements })
   }
 
-  async function updateFinalScore() {
-    const ai = pillar.aiScore || 0
-    const manual = pillar.manualScore || 0
-    const interview = pillar.interviewScore || 0
+  async function updateFinalScore(overrides: Partial<{ aiScore: number; manualScore: number; interviewScore: number }> = {}) {
+    const ai = overrides.aiScore ?? pillar.aiScore ?? 0
+    const manual = overrides.manualScore ?? pillar.manualScore ?? 0
+    const interview = overrides.interviewScore ?? pillar.interviewScore ?? 0
     let count = 0, sum = 0
     if (ai > 0) { sum += ai; count++ }
     if (manual > 0) { sum += manual * 1.2; count += 1.2 }
     if (interview > 0) { sum += interview; count++ }
     const final = count > 0 ? Math.min(5, Math.max(1, sum / count)) : null
-    await savePillar({ finalScore: final ? parseFloat(final.toFixed(2)) : null })
+    await savePillar({ ...overrides, finalScore: final ? parseFloat(final.toFixed(2)) : null })
   }
 
   async function sendChat() {
@@ -509,13 +509,12 @@ export default function AssessmentPage() {
             ].map(s => (
               <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '12px', color: 'var(--sia-medium-gray)' }}>{s.label}</span>
-                <input type="number" min="1" max="5" step="0.5" disabled={s.readOnly}
+                <input key={`${activePillar}-${activeEntityId || 'main'}-${s.field}`} type="number" min="1" max="5" step="0.5" disabled={s.readOnly}
                   defaultValue={s.value || ''}
                   placeholder="—"
                   onBlur={async e => {
                     if (!s.readOnly && e.target.value) {
-                      await projectsApi.updatePillar(project.id, activePillar, { [s.field]: parseFloat(e.target.value) })
-                      await updateFinalScore()
+                      await updateFinalScore({ [s.field]: parseFloat(e.target.value) })
                     }
                   }}
                   style={{ width: '60px', padding: '6px 8px', border: `1px solid ${s.readOnly ? 'transparent' : 'rgba(69,85,105,0.2)'}`, borderRadius: '6px', fontFamily: 'var(--font-display)', fontSize: '16px', fontWeight: 700, color: 'var(--sia-navy)', background: s.readOnly ? 'var(--sia-light-gray)' : 'white', textAlign: 'center' }}
@@ -610,7 +609,7 @@ export default function AssessmentPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {el.aiScore && <span className={`rag-badge rag-${elRag}`}>Score: {el.aiScore}/5</span>}
                         {project.interviewModeEnabled && (
-                          <input type="number" min="1" max="5" step="0.5" placeholder="I" defaultValue={el.manualScore || ''}
+                          <input key={`${activeEntityId || 'main'}-${el.id}`} type="number" min="1" max="5" step="0.5" placeholder="I" defaultValue={el.manualScore || ''}
                             onBlur={e => { if (e.target.value) saveElementNote(i, 'manualScore', parseFloat(e.target.value)) }}
                             style={{ width: '44px', padding: '3px 6px', border: '1px solid rgba(69,85,105,0.2)', borderRadius: '4px', fontSize: '12px', textAlign: 'center', background: 'white' }} />
                         )}
@@ -641,7 +640,7 @@ export default function AssessmentPage() {
                       {/* Consultant Notes */}
                       <div>
                         <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--sia-medium-gray)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>📝 Consultant Notes</div>
-                        <textarea placeholder="Add your notes, observations, or interview findings here..." defaultValue={el.notes || ''} onBlur={e => { if (e.target.value !== el.notes) saveElementNote(i, 'notes', e.target.value) }}
+                        <textarea key={`${activeEntityId || 'main'}-${el.id}-notes`} placeholder="Add your notes, observations, or interview findings here..." defaultValue={el.notes || ''} onBlur={e => { if (e.target.value !== el.notes) saveElementNote(i, 'notes', e.target.value) }}
                           style={{ width: '100%', padding: '8px 10px', border: '1px solid rgba(69,85,105,0.15)', borderRadius: '4px', fontSize: '12px', resize: 'vertical', minHeight: '48px', background: 'white', fontFamily: 'var(--font-body)', color: 'var(--sia-cool-gray)', lineHeight: 1.5 }} rows={2}
                         />
                       </div>

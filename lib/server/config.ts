@@ -52,7 +52,6 @@ export const config = {
     d4:       process.env.SIAGPT_ASSISTANT_D4       || '',
     d5:       process.env.SIAGPT_ASSISTANT_D5       || '',
     d6:       process.env.SIAGPT_ASSISTANT_D6       || '',
-    rubric:   process.env.SIAGPT_ASSISTANT_RUBRIC   || '',
   } as Record<string, string>,
   isDev: (process.env.NODE_ENV || 'development') === 'development',
 }

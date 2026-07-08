@@ -70,10 +70,7 @@ interface Project {
   entityName: string
   entityType: string
   language: string
-  webEnrichmentEnabled: boolean
   interviewModeEnabled: boolean
-  pillarWeights: Record<string, number>
-  strategyTemplate: string
   consultantName: string
   sector?: string
   assessmentDateStart?: string
