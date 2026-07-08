@@ -361,11 +361,11 @@ export const DEFAULT_RUBRIC: Record<string, Record<string, {
       excellent:  'Proven ability to create new market spaces; multiple successful blue ocean moves executed',
     },
     'Parenting Advantage Opportunities': {
-      critical:   'No portfolio review process; underperforming entities retain capital indefinitely',
-      weak:       'Portfolio reviewed informally; divestiture decisions lack rigor or are avoided',
-      developing: 'Portfolio assessment conducted periodically; some optimization actions taken',
-      strong:     'Active portfolio management with clear investment thesis per entity and regular rebalancing',
-      excellent:  'Dynamic portfolio management; continuous optimization delivering superior returns across the portfolio',
+      critical:   'No parenting advantage model exists; the holding creates no identifiable value beyond passive ownership, and cross-subsidiary synergies or shared capabilities are neither identified nor pursued',
+      weak:       'Parenting advantage is assumed rather than demonstrated; potential synergies and shared capabilities are recognized informally but no mechanism exists to capture them',
+      developing: 'Some parenting advantage initiatives are underway (e.g., selective capability sharing or synergy pilots) but value delivered to subsidiaries is inconsistent and not systematically tracked',
+      strong:     'Clear parenting advantage framework identifies and captures synergies and shared capabilities across subsidiaries, with measurable value-add tracked per initiative',
+      excellent:  'Parenting advantage is a primary source of group value creation; synergies and capability transfers are proactively identified, systematically captured, and continuously expanded across the portfolio',
     },
   },
 }
