@@ -153,10 +153,54 @@ export function parseJsonFromText(text: string): any {
   return JSON.parse(cleaned.slice(start, end + 1))
 }
 
+// pdfjs-dist (used internally by pdf-parse) reaches for the browser's DOMMatrix
+// during content-stream parsing even for plain text extraction. It tries to load
+// the native `@napi-rs/canvas` package for a real implementation, but that native
+// binary is unreliable to trace into Vercel's serverless bundle, so provide a pure-JS
+// fallback that covers the 2D matrix ops pdfjs actually touches.
+function ensureDOMMatrixPolyfill() {
+  if (typeof (globalThis as any).DOMMatrix !== 'undefined') return
+  class DOMMatrixPolyfill {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0
+    constructor(init?: number[]) {
+      if (init && init.length === 6) [this.a, this.b, this.c, this.d, this.e, this.f] = init
+    }
+    multiplySelf(o: DOMMatrixPolyfill) {
+      const { a, b, c, d, e, f } = this
+      this.a = a * o.a + c * o.b
+      this.b = b * o.a + d * o.b
+      this.c = a * o.c + c * o.d
+      this.d = b * o.c + d * o.d
+      this.e = a * o.e + c * o.f + e
+      this.f = b * o.e + d * o.f + f
+      return this
+    }
+    multiply(o: DOMMatrixPolyfill) {
+      return new DOMMatrixPolyfill([this.a, this.b, this.c, this.d, this.e, this.f]).multiplySelf(o)
+    }
+    translateSelf(tx = 0, ty = 0) { return this.multiplySelf(new DOMMatrixPolyfill([1, 0, 0, 1, tx, ty])) }
+    translate(tx = 0, ty = 0) { return this.multiply(new DOMMatrixPolyfill([1, 0, 0, 1, tx, ty])) }
+    scaleSelf(sx = 1, sy = sx) { return this.multiplySelf(new DOMMatrixPolyfill([sx, 0, 0, sy, 0, 0])) }
+    scale(sx = 1, sy = sx) { return this.multiply(new DOMMatrixPolyfill([sx, 0, 0, sy, 0, 0])) }
+    invertSelf() {
+      const det = this.a * this.d - this.b * this.c
+      const { a, b, c, d, e, f } = this
+      this.a = d / det; this.b = -b / det; this.c = -c / det; this.d = a / det
+      this.e = (c * f - d * e) / det; this.f = (b * e - a * f) / det
+      return this
+    }
+    transformPoint(p: { x: number; y: number } = { x: 0, y: 0 }) {
+      return { x: this.a * p.x + this.c * p.y + this.e, y: this.b * p.x + this.d * p.y + this.f, z: 0, w: 1 }
+    }
+  }
+  ;(globalThis as any).DOMMatrix = DOMMatrixPolyfill
+}
+
 export async function extractText(buffer: Buffer, mimetype: string, originalName: string): Promise<string> {
   try {
     const ext = originalName.toLowerCase().split('.').pop() || ''
     if (mimetype === 'application/pdf' || ext === 'pdf') {
+      ensureDOMMatrixPolyfill()
       const { PDFParse } = await import('pdf-parse')
       const parser = new PDFParse({ data: buffer })
       try {
