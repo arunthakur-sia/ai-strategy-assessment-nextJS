@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+  // pdf-parse loads pdfjs-dist's worker via a runtime-computed dynamic import,
+  // which Vercel's build-time file tracing can't follow statically, so the
+  // worker file gets dropped from the deployed function unless listed here.
+  outputFileTracingIncludes: {
+    '/api/documents/**': ['./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'],
+  },
 }
 
 export default nextConfig

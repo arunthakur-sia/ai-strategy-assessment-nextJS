@@ -78,6 +78,28 @@ export async function deleteSiaGPTCollection(collectionId: string): Promise<void
   } catch (e: any) { log.error('SiaGPT collection deletion error', e) }
 }
 
+export async function deleteSiaGPTMedia(mediaDefinitionId: string): Promise<void> {
+  if (!mediaDefinitionId || !config.siagptBaseUrl) return
+  const doDelete = async () => {
+    const token = await getSiaGptToken()
+    return fetch(`${config.siagptBaseUrl}/medias/${mediaDefinitionId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}`, 'app-origin': 'AI Platform' },
+    })
+  }
+  try {
+    let resp = await doDelete()
+    if (resp.status === 401 || resp.status === 403) {
+      invalidateSiaGptToken()
+      resp = await doDelete()
+    }
+    if (!resp.ok) {
+      const body = await resp.text()
+      log.warn(`SiaGPT media deletion failed for ${mediaDefinitionId}: ${resp.status} ${body}`)
+    }
+  } catch (e: any) { log.error('SiaGPT media deletion error', e) }
+}
+
 export async function createSiaGPTCollection(name: string, description: string): Promise<string | null> {
   if (!config.siagptMediaFolderId) return null
   const doCreate = async () => {
