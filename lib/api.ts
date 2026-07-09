@@ -1,5 +1,6 @@
 'use client'
 import axios from 'axios'
+import { upload as blobUpload } from '@vercel/blob/client'
 
 // In Next.js the API is always at /api (same origin)
 const API_ROOT = '/api'
@@ -71,16 +72,30 @@ export const projectsApi = {
   delete: (id: string) => api.delete(`/projects/${id}`),
 }
 
-export const documentsApi = {
-  upload: (projectId: string, files: File[], docType: string, docLabel: string) => {
-    const formData = new FormData()
-    files.forEach(f => formData.append('files', f))
-    formData.append('docType', docType || 'general')
-    formData.append('docLabel', docLabel || '')
-    return api.post(`/documents/${projectId}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
+// Uploads files directly from the browser to Vercel Blob storage, bypassing the
+// platform's 4.5MB serverless function request body limit, then hands the
+// resulting blob URLs to the server route for text extraction/processing.
+async function uploadFilesViaBlob(projectId: string, files: File[]) {
+  const uploaded = []
+  for (const file of files) {
+    const blob = await blobUpload(`${projectId}/${Date.now()}-${file.name}`, file, {
+      access: 'public',
+      handleUploadUrl: `/api/documents/${projectId}/upload/blob-token`,
+      headers: authHeaders(projectId),
     })
+    uploaded.push({ url: blob.url, name: file.name, type: file.type, size: file.size })
+  }
+  return uploaded
+}
+
+export const documentsApi = {
+  upload: async (projectId: string, files: File[], docType: string, docLabel: string) => {
+    const uploadedFiles = await uploadFilesViaBlob(projectId, files)
+    return api.post(`/documents/${projectId}/upload`, {
+      files: uploadedFiles,
+      docType: docType || 'general',
+      docLabel: docLabel || '',
+    }, { timeout: 120000 })
   },
   delete: (projectId: string, docId: string) => api.delete(`/documents/${projectId}/${docId}`),
   getText: (projectId: string, docId: string) => api.get(`/documents/${projectId}/${docId}/text`),
@@ -199,15 +214,13 @@ export const entitiesApi = {
 }
 
 export const entityDocumentsApi = {
-  upload: (projectId: string, entityId: string, files: File[], docType: string, docLabel: string) => {
-    const formData = new FormData()
-    files.forEach(f => formData.append('files', f))
-    formData.append('docType', docType || 'general')
-    formData.append('docLabel', docLabel || '')
-    return api.post(`/documents/${projectId}/${entityId}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
-    })
+  upload: async (projectId: string, entityId: string, files: File[], docType: string, docLabel: string) => {
+    const uploadedFiles = await uploadFilesViaBlob(projectId, files)
+    return api.post(`/documents/${projectId}/${entityId}/upload`, {
+      files: uploadedFiles,
+      docType: docType || 'general',
+      docLabel: docLabel || '',
+    }, { timeout: 120000 })
   },
   delete: (projectId: string, entityId: string, docId: string) => api.delete(`/documents/${projectId}/${entityId}/${docId}`),
   embeddingStatus: (projectId: string, entityId: string) => api.get(`/documents/${projectId}/${entityId}/embedding-status`),

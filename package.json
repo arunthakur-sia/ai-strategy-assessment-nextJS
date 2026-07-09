@@ -39,6 +39,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@supabase/supabase-js": "^2.102.0",
     "@tanstack/react-query": "^5.60.5",
+    "@vercel/blob": "^2.6.1",
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
