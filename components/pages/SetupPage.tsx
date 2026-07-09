@@ -52,6 +52,7 @@ export default function SetupPage() {
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
   const [uploading, setUploading] = useState<Record<string, boolean>>({})
+  const [pendingUploads, setPendingUploads] = useState<{ id: string; name: string }[]>([])
   const [embeddingStatus, setEmbeddingStatus] = useState<Record<string, 'embedding' | 'complete'>>({})
   const [expandedTiers, setExpandedTiers] = useState<Record<string, boolean>>({ mandatory: true, optional: false, enrichment: false })
   const [previewDoc, setPreviewDoc] = useState<any>(null)
@@ -143,6 +144,8 @@ export default function SetupPage() {
   async function handleUpload(files: FileList | null, docType: string) {
     if (!files || files.length === 0) return
     const fileArr = Array.from(files)
+    const pending = fileArr.map(f => ({ id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`, name: f.name }))
+    setPendingUploads(p => [...p, ...pending])
     setUploading(u => ({ ...u, [docType]: true }))
     try {
       await documentsApi.upload(project!.id, fileArr, docType, docType)
@@ -158,6 +161,7 @@ export default function SetupPage() {
       alert('Upload failed: ' + (e.response?.data?.error || e.message))
     }
     setUploading(u => ({ ...u, [docType]: false }))
+    setPendingUploads(p => p.filter(pu => !pending.some(np => np.id === pu.id)))
   }
 
   async function handleDeleteDoc(docId: string) {
@@ -319,7 +323,7 @@ export default function SetupPage() {
             </div>
           </div>
 
-          {project.documents.length > 0 && (
+          {(project.documents.length > 0 || pendingUploads.length > 0) && (
             <div className="card" style={{ padding: '24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -327,6 +331,11 @@ export default function SetupPage() {
                   <span style={{ fontSize: '12px', padding: '2px 10px', borderRadius: '999px', background: 'rgba(0,222,204,0.1)', color: 'var(--sia-teal)', fontWeight: 600 }}>
                     {project.documents.length} file{project.documents.length !== 1 ? 's' : ''}
                   </span>
+                  {pendingUploads.length > 0 && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--sia-teal)', fontWeight: 600 }}>
+                      <Loader2 size={11} className="spinner" /> Uploading {pendingUploads.length}...
+                    </span>
+                  )}
                   {Object.values(embeddingStatus).some(v => v === 'embedding') && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#D97706', fontWeight: 600 }}>
                       <Loader2 size={11} className="spinner" /> Processing...
@@ -347,6 +356,30 @@ export default function SetupPage() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {pendingUploads.map(pu => (
+                  <div key={pu.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '10px 14px',
+                    background: 'rgba(0,222,204,0.05)',
+                    border: '1px solid rgba(0,222,204,0.25)',
+                    borderRadius: 'var(--radius)'
+                  }}>
+                    <div style={{
+                      width: '32px', height: '32px', borderRadius: '6px', flexShrink: 0,
+                      background: 'rgba(0,222,204,0.1)',
+                      border: '1px solid rgba(0,222,204,0.25)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <Loader2 size={14} color="var(--sia-teal)" className="spinner" />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--sia-navy)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pu.name}</div>
+                    </div>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px', color: 'var(--sia-teal)', fontWeight: 600, flexShrink: 0 }}>
+                      <Loader2 size={10} className="spinner" /> Uploading and processing...
+                    </span>
+                  </div>
+                ))}
                 {project.documents.map((doc: any) => {
                   const isEmbedding = embeddingStatus[doc.name] === 'embedding'
                   const isEmbedded = embeddingStatus[doc.name] === 'complete'

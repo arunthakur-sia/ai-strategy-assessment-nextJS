@@ -157,10 +157,14 @@ export async function extractText(buffer: Buffer, mimetype: string, originalName
   try {
     const ext = originalName.toLowerCase().split('.').pop() || ''
     if (mimetype === 'application/pdf' || ext === 'pdf') {
-      const pdfParseModule = await import('pdf-parse')
-      const pdfParse = (pdfParseModule as any).default ?? pdfParseModule
-      const result = await pdfParse(buffer)
-      return result.text || ''
+      const { PDFParse } = await import('pdf-parse')
+      const parser = new PDFParse({ data: buffer })
+      try {
+        const result = await parser.getText()
+        return result.text || ''
+      } finally {
+        await parser.destroy()
+      }
     }
     if (mimetype.includes('wordprocessingml') || ext === 'docx' || ext === 'doc') {
       const mammoth = await import('mammoth')
