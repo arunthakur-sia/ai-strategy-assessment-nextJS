@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { del } from '@vercel/blob'
+import { del, get } from '@vercel/blob'
 import { loadProject, saveProject, extractText } from '@/lib/server/helpers'
 import { getSiaGptToken, uploadDocToSiaGPTCollection } from '@/lib/server/siagpt'
 import { requireProjectAuth } from '@/lib/server/auth'
@@ -35,8 +35,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (project.siagptCollectionId) await getSiaGptToken().catch(() => {})
     const results = []
     for (const file of files) {
-      const blobResp = await fetch(file.url)
-      const buffer = Buffer.from(await blobResp.arrayBuffer())
+      const blobResult = await get(file.url, { access: 'private' })
+      if (!blobResult) throw new Error(`Blob not found: ${file.name}`)
+      const buffer = Buffer.from(await new Response(blobResult.stream).arrayBuffer())
       const extractedText = await extractText(buffer, file.type, file.name)
       const doc: any = {
         id: uuidv4(), name: file.name, type: docType || 'general', label: docLabel || file.name,

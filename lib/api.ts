@@ -79,7 +79,7 @@ async function uploadFilesViaBlob(projectId: string, files: File[]) {
   const uploaded = []
   for (const file of files) {
     const blob = await blobUpload(`${projectId}/${Date.now()}-${file.name}`, file, {
-      access: 'public',
+      access: 'private',
       handleUploadUrl: `/api/documents/${projectId}/upload/blob-token`,
       headers: authHeaders(projectId),
     })
