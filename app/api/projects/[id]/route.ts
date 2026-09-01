@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const project = await loadProject(id)
     if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const { passwordHash, ...safe } = project
-    return NextResponse.json(safe)
+    return NextResponse.json(safe, { headers: { 'Cache-Control': 'no-store' } })
   } catch (err: any) { return NextResponse.json({ error: err.message }, { status: 500 }) }
 }
 

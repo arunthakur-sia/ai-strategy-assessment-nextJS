@@ -26,7 +26,44 @@ interface Pillar {
   swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] }
   interviewQuestions: string[]
   chatHistory: any[]
-  status: 'not_started' | 'in_progress' | 'complete'
+  // P1-P8 are locked until the previous pillar (depIds[0]) is approved; the external fan-out agents
+  // (bench/pestel/marketSizing/competitor) reuse this same Pillar shape but depend on IDI Synth instead.
+  status: 'locked' | 'not_started' | 'in_progress' | 'complete'
+  depIds: string[]
+  /** Version number (matches an entry in versionHistory) the human has approved as canonical; null = not yet approved. */
+  approvedVersion: number | null
+  approvedAt: string | null
+  approvedBy: string | null
+  /** Every completed run, oldest first — versionHistory[].v matches the chat "vN" tags shown in the UI.
+   *  A version can be approved straight from a chat transcript before the agent reached a structured
+   *  result (see ensureApprovableVersion server-side) — result is null and text holds the transcript. */
+  versionHistory: { v: number; result: any | null; text?: string; createdAt: string }[]
+}
+
+/** IDI Guide / IDI Synth — unscored narrative agents in the Wave 1 external-analysis pipeline. */
+export interface NarrativeAgent {
+  id: string
+  status: 'locked' | 'not_started' | 'in_progress' | 'complete'
+  depIds: string[]
+  /** Only set on IDI Synth: gates it on a human uploading interview transcripts as their own collection. */
+  uploadDep?: { label: string; hint: string; done: boolean; collectionId: string | null }
+  output: { aiDraft: string; edited: string }
+  versionHistory: { v: number; text: string; createdAt: string }[]
+  approvedVersion: number | null
+  approvedAt: string | null
+  approvedBy: string | null
+  chatHistory: any[]
+}
+
+/** Gates the entity-level SWOT — the underlying consolidatedSwot/strategicHypothesis fields stay the actual data. */
+export interface SwotAgentGate {
+  status: 'locked' | 'not_started' | 'in_progress' | 'complete'
+  depIds: string[]
+  versionHistory: { v: number; result: { consolidatedSwot: any; strategicHypothesis: string }; createdAt: string }[]
+  approvedVersion: number | null
+  approvedAt: string | null
+  approvedBy: string | null
+  chatHistory: any[]
 }
 
 interface EntityAssessment {
@@ -34,6 +71,15 @@ interface EntityAssessment {
   consolidatedSwot: { strengths: any[]; weaknesses: any[]; opportunities: any[]; threats: any[] }
   strategicHypothesis: { aiDraft: string; edited: string }
   benchmarkData: Record<string, any>
+  externalAgents: {
+    idiGuide: NarrativeAgent
+    idiSynth: NarrativeAgent
+    bench: Pillar
+    pestel: Pillar
+    marketSizing: Pillar
+    competitor: Pillar
+  }
+  swotAgent: SwotAgentGate
 }
 
 export interface SubsidiaryEntity {
@@ -41,6 +87,8 @@ export interface SubsidiaryEntity {
   name: string
   type: string
   siagptCollectionId: string
+  /** Set once the human uploads interview transcripts for IDI Synth — a separate collection from siagptCollectionId. */
+  interviewCollectionId: string
   documents: any[]
   assessment: EntityAssessment
   outputs: Record<string, { generated: boolean; content: string; fileUrl?: string; fileName?: string; lastGenerated: string | null }>

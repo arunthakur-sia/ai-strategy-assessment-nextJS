@@ -95,6 +95,10 @@ interface SourcesPanelProps {
   onClose?: () => void
   /** When true, renders flush without card chrome (for sidebar use) */
   sidebar?: boolean
+  /** Called with the resolved {num: {title,url}} map once metadata fetch completes. Defaults to writing
+   *  the app-wide citation-badge cache; pass a local setter when this instance's source numbers are scoped
+   *  to one conversation and would otherwise collide with unrelated numbers elsewhere in the app. */
+  onResolvedMeta?: (meta: Record<string, { title: string; url: string | null }>) => void
 }
 
 export function SourcesPanel({
@@ -105,6 +109,7 @@ export function SourcesPanel({
   open = false,
   onClose,
   sidebar = false,
+  onResolvedMeta,
 }: SourcesPanelProps) {
   const [tab, setTab] = useState<'cited' | 'explored'>('cited')
   const [batchMeta, setBatchMeta] = useState<Record<string, any>>({})
@@ -112,6 +117,7 @@ export function SourcesPanel({
   const [fetched, setFetched] = useState(false)
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const setGlobalSourceMeta = useStore(s => s.setGlobalSourceMeta)
+  const applyResolvedMeta = onResolvedMeta ?? setGlobalSourceMeta
 
   // Build effective sources: newSources (from NEW_SOURCES SSE) + fallback MEDIA_VERSION
   // entries from citation UUIDs for any number not already in newSources.
@@ -193,7 +199,7 @@ export function SourcesPanel({
             }
           }
         }
-        setGlobalSourceMeta(resolved)
+        applyResolvedMeta(resolved)
       })
       .finally(() => { setFetched(true); setLoading(false) })
   // eslint-disable-next-line react-hooks/exhaustive-deps

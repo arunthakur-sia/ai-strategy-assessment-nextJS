@@ -11,6 +11,7 @@ export interface SiaGPTResult {
   newSources: Record<string, { id: string; type: string; url?: string; header?: string; description?: string }>
   fileUrl?: string
   fileName?: string
+  discussionId: string
 }
 
 export async function getSiaGptToken(): Promise<string> {
@@ -182,28 +183,37 @@ export async function callSiaGPT(
     tools?: string[]
     context?: string
     timeoutMs?: number
+    /** Reuse an existing SiaGPT discussion thread instead of creating a new one — history for that
+     *  thread is resolved server-side by SiaGPT, keyed on this id. Omit to start a fresh discussion. */
+    discussionId?: string
   }
 ): Promise<SiaGPTResult> {
   let token: string
   try { token = await getSiaGptToken() } catch (e) { throw e }
   const baseUrl = config.siagptBaseUrl
   const ctx = options?.context ?? 'LLM call'
-
-  // 1. Create discussion
-  const discName = `SIA Assessment ${Date.now()}`
   const ownerId = config.siagptOwnerId
-  log.discussionRequest(discName, ownerId)
-  const discResp = await fetch(`${baseUrl}/chat/discussions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'app-origin': 'AI Platform' },
-    body: JSON.stringify({ name: discName, ownerId, ownerType: 'USER' }),
-  })
-  if (!discResp.ok) {
-    if (discResp.status === 401) invalidateSiaGptToken()
-    throw new Error(`SiaGPT discussion creation failed: ${discResp.status}`)
+
+  // 1. Create the discussion — only when the caller has no existing thread to reuse. Reusing a
+  // discussionId across turns is what lets SiaGPT resolve prior turns server-side, so a caller running a
+  // multi-turn conversation must pass the same discussionId back in on every subsequent call.
+  let discussionId = options?.discussionId
+  if (!discussionId) {
+    const discName = `SIA Assessment ${Date.now()}`
+    log.discussionRequest(discName, ownerId)
+    const discResp = await fetch(`${baseUrl}/chat/discussions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'app-origin': 'AI Platform' },
+      body: JSON.stringify({ name: discName, ownerId, ownerType: 'USER' }),
+    })
+    if (!discResp.ok) {
+      if (discResp.status === 401) invalidateSiaGptToken()
+      throw new Error(`SiaGPT discussion creation failed: ${discResp.status}`)
+    }
+    const discData = await discResp.json() as any
+    discussionId = discData.uuid as string
+    log.discussionResponse(discussionId)
   }
-  const { uuid: discussionId } = await discResp.json() as any
-  log.discussionResponse(discussionId)
 
   // 2. Post message
   const { v7: uuidv7 } = await import('uuid')
@@ -251,6 +261,29 @@ export async function callSiaGPT(
     }
   }
 
+  // Event types that never carry the assistant's actual answer (reasoning/tool narration, citation
+  // metadata, or discussion lifecycle notices) — see SiaGPT-Integration-Guide.md's Event Types table.
+  // If parsing falls all the way back to "last event" and lands on one of these, the assistant ran out
+  // of tool-call steps (e.g. mid multi-company web research) without ever emitting OVERWRITE_TEXT/CHAT,
+  // so showing that fragment as the reply would just surface a stray "Calling web_search tool..." line.
+  const NON_CONTENT_EVENTS = new Set([
+    'NEW_THINKING', 'THINKING_SOURCES', 'NEW_THINKING_SOURCES', 'NEW_WIDGET',
+    'NEW_MESSAGE', 'RENAME_DISCUSSION', 'DELETE_MESSAGE', 'NEW_SOURCES',
+  ])
+
+  function pickFinalEvent(events: any[]): any {
+    // OVERWRITE_TEXT/CHAT events supersede earlier events of the same type as the response
+    // generates, so the LAST one of each type — not the first — carries the complete text.
+    const chosen = [...events].reverse().find(e => e.event === 'OVERWRITE_TEXT')
+      ?? [...events].reverse().find(e => e.event === 'CHAT')
+    if (chosen) return chosen
+    const last = events[events.length - 1]
+    if (last && NON_CONTENT_EVENTS.has(last.event)) {
+      throw new Error(`SiaGPT ended without a final answer — its last event was "${last.event}" (it likely ran out of tool-call steps mid-research). Try again.`)
+    }
+    return last
+  }
+
   function extractFileInfo(events: any[], text: string): { url?: string; name?: string } {
     const parts: string[] = []
     for (const e of events as any[]) {
@@ -276,38 +309,32 @@ export async function callSiaGPT(
     return {}
   }
 
+  let events: any[]
+  let parseMode: 'json' | 'ndjson'
   try {
     const parsed = JSON.parse(raw)
-    const events: any[] = Array.isArray(parsed) ? parsed : [parsed]
-    extractNewSources(events)
-    const errorEvent = events.find(e => e.event === 'NEW_ERROR')
-    if (errorEvent) throw new Error(`SiaGPT error: ${errorEvent.error ?? JSON.stringify(errorEvent)}`)
-    const chosen = events.find(e => e.event === 'OVERWRITE_TEXT') ??
-      events.find(e => e.event === 'CHAT') ?? events[events.length - 1]
-    chosenEvent = chosen?.event ?? 'json'
-    result = String(chosen?.data ?? chosen?.content ?? raw)
-    const info1 = extractFileInfo(events, result)
-    fileUrl = info1.url; fileName = info1.name
-  } catch (e: any) {
-    if (e.message?.startsWith('SiaGPT error:')) throw e
-    const events = raw.split('\n').filter(l => l.trim()).map(l => {
+    events = Array.isArray(parsed) ? parsed : [parsed]
+    parseMode = 'json'
+  } catch {
+    events = raw.split('\n').filter(l => l.trim()).map(l => {
       const p = l.startsWith('data: ') ? l.slice(6) : l
       try { return JSON.parse(p) } catch { return null }
     }).filter(Boolean)
-    if (events.length > 0) {
-      extractNewSources(events)
-      const errorEvent = (events as any[]).find(e => e.event === 'NEW_ERROR')
-      if (errorEvent) throw new Error(`SiaGPT error: ${errorEvent.error ?? JSON.stringify(errorEvent)}`)
-      const chosen = (events as any[]).find(e => e.event === 'OVERWRITE_TEXT') ??
-        (events as any[]).find(e => e.event === 'CHAT') ?? events[events.length - 1]
-      chosenEvent = (chosen as any)?.event ?? 'ndjson'
-      result = String((chosen as any)?.data ?? (chosen as any)?.content ?? raw)
-      const info2 = extractFileInfo(events, result)
-      fileUrl = info2.url; fileName = info2.name
-    } else {
-      result = raw
-    }
+    parseMode = 'ndjson'
+  }
+
+  if (events.length > 0) {
+    extractNewSources(events)
+    const errorEvent = events.find(e => e.event === 'NEW_ERROR')
+    if (errorEvent) throw new Error(`SiaGPT error: ${errorEvent.error ?? JSON.stringify(errorEvent)}`)
+    const chosen = pickFinalEvent(events)
+    chosenEvent = chosen?.event ?? parseMode
+    result = String(chosen?.data ?? chosen?.content ?? raw)
+    const info = extractFileInfo(events, result)
+    fileUrl = info.url; fileName = info.name
+  } else {
+    result = raw
   }
   log.messageResponse(result, chosenEvent, ctx)
-  return { text: result, newSources, fileUrl, fileName }
+  return { text: result, newSources, fileUrl, fileName, discussionId }
 }

@@ -13,8 +13,8 @@ import { projectsApi } from '@/lib/api'
 
 const NAV_ITEMS = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', key: 'dashboard' },
-  { path: '/setup', icon: Settings, label: 'Project Setup', key: 'setup' },
   { path: '/assessment', icon: Search, label: 'Assessment', key: 'assessment' },
+  { path: '/setup', icon: Settings, label: 'Project Setup', key: 'setup' },
   { path: '/rubric', icon: BookOpen, label: 'Grading Rubric', key: 'rubric' },
   { path: '/swot', icon: BarChart3, label: 'SWOT Analysis', key: 'swot' },
   { path: '/strategy', icon: GitBranch, label: 'Strategy Builder', key: 'strategy' },

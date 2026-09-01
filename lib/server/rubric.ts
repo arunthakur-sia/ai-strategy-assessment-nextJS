@@ -375,8 +375,14 @@ function normalizeElName(name: string): string {
 }
 
 export function buildRubricSection(project: any, pillarId: string): string {
-  const pillar = project.assessment.pillars[pillarId]
-  const savedRubric: Record<string, Record<string, Record<string, string>>> = project.rubric || {}
+  return buildRubricSectionForPillar(project.assessment.pillars[pillarId], pillarId, project.rubric || {})
+}
+
+/** Same as buildRubricSection but takes the pillar-shaped object directly — used for agents that
+ *  don't live under project.assessment.pillars, e.g. the Wave 1 fan-out agents under entity.assessment.externalAgents. */
+export function buildRubricSectionForPillar(
+  pillar: any, pillarId: string, savedRubric: Record<string, Record<string, Record<string, string>>> = {}
+): string {
   const savedPillar = savedRubric[pillarId] || {}
   const defaultPillar = DEFAULT_RUBRIC[pillarId] || {}
 

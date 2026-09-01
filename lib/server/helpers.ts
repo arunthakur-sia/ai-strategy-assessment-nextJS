@@ -2,7 +2,7 @@ import 'server-only'
 import { v4 as uuidv4 } from 'uuid'
 import { supabase } from './db'
 
-export function createPillar(id: string, name: string, description: string, elementNames: string[]) {
+export function createPillar(id: string, name: string, description: string, elementNames: string[], depIds: string[] = []) {
   return {
     id, name, description,
     aiScore: null, manualScore: null, interviewScore: null, finalScore: null,
@@ -13,25 +13,83 @@ export function createPillar(id: string, name: string, description: string, elem
       aiScore: null, manualScore: null, scoreRationale: '', notes: '', dataGap: null
     })),
     swot: { strengths: [], weaknesses: [], opportunities: [], threats: [] },
-    interviewQuestions: [], chatHistory: [], status: 'not_started'
+    interviewQuestions: [], chatHistory: [], status: depIds.length ? 'locked' : 'not_started',
+    depIds,
+    approvedVersion: null, approvedAt: null, approvedBy: null, versionHistory: [],
+    discussionId: null
+  }
+}
+
+export function createNarrativeAgent(id: string, depIds: string[] = [], uploadDep?: { label: string; hint: string }) {
+  return {
+    id, status: depIds.length || uploadDep ? 'locked' : 'not_started', depIds,
+    ...(uploadDep ? { uploadDep: { ...uploadDep, done: false, collectionId: null } } : {}),
+    output: { aiDraft: '', edited: '' },
+    versionHistory: [], approvedVersion: null, approvedAt: null, approvedBy: null,
+    chatHistory: [], discussionId: null
+  }
+}
+
+const FANOUT_ELEMENTS: Record<string, string[]> = {
+  bench: ['Peer Set Selection', 'Performance Benchmarks', 'Capability Benchmarks', 'Positioning vs. Peers'],
+  pestel: ['Political', 'Economic', 'Social', 'Technological', 'Environmental', 'Legal'],
+  marketSizing: ['Total Addressable Market', 'Serviceable Market', 'Growth Rate & Drivers', 'Segment Attractiveness'],
+  competitor: ['Competitor Identification', 'Competitive Positioning', 'Pricing & Service Comparison', 'Win/Loss Dynamics'],
+}
+export const FANOUT_NAMES: Record<string, string> = {
+  bench: 'Benchmarking', pestel: 'PESTEL', marketSizing: 'Market sizing', competitor: 'Competitor analysis',
+}
+export const FANOUT_AGENT_IDS = ['bench', 'pestel', 'marketSizing', 'competitor']
+export const PILLAR_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8']
+
+export function createExternalAgents() {
+  return {
+    idiGuide: createNarrativeAgent('idiGuide'),
+    idiSynth: createNarrativeAgent('idiSynth', ['idiGuide'], {
+      label: 'Interview transcripts',
+      hint: 'Upload the raw interview results collected by human interviewers using the approved guide. This creates a collection passed to IDI Synth as input.',
+    }),
+    // Fan-out agents run strictly in sequence, same as pillars: each is locked until the previous one is
+    // approved. Only bench's incoming dependency (idiSynth vs. none) is re-wired by setIdiDocumentsAvailable.
+    bench: createPillar('bench', FANOUT_NAMES.bench, 'How does the entity compare against relevant peers?', FANOUT_ELEMENTS.bench, ['idiSynth']),
+    pestel: createPillar('pestel', FANOUT_NAMES.pestel, 'What macro-environmental factors affect the entity?', FANOUT_ELEMENTS.pestel, ['bench']),
+    marketSizing: createPillar('marketSizing', FANOUT_NAMES.marketSizing, "What is the entity's addressable market opportunity?", FANOUT_ELEMENTS.marketSizing, ['pestel']),
+    competitor: createPillar('competitor', FANOUT_NAMES.competitor, 'Who competes with the entity and how does it stack up?', FANOUT_ELEMENTS.competitor, ['marketSizing']),
+  }
+}
+
+export function createSwotAgentGate(pillarIds: string[]) {
+  return {
+    status: 'locked' as const,
+    depIds: [...pillarIds, 'bench', 'pestel', 'marketSizing', 'competitor'],
+    versionHistory: [] as any[], approvedVersion: null, approvedAt: null, approvedBy: null, chatHistory: [],
+    discussionId: null,
   }
 }
 
 export function createDefaultEntityAssessment() {
   return {
     pillars: {
+      // Pillars run strictly in sequence: each one is locked until the previous pillar is approved.
       P1: createPillar('P1','Strategic Identity & Vision',"What is the entity's reason for being and where is it headed?",['Mission & Vision Clarity','Strategic Intent','Value Proposition','Strategic Coherence','Parenting Purpose']),
-      P2: createPillar('P2','Governance & Leadership','How is the entity governed and led?',['Board Composition & Effectiveness','Leadership Team Capability','Decision-Making Architecture','Accountability & Performance Management','Parenting Style']),
-      P3: createPillar('P3','Financial Health & Performance','How financially sound and performant is the entity?',['Revenue Trajectory','Profitability Analysis','Liquidity & Solvency','Cash Flow Quality','Capital Allocation Efficiency','Working Capital Management','Portfolio Financial Contribution']),
-      P4: createPillar('P4','Market Position & Competitive Landscape','Where does the entity stand in its market?',['Market Size & Growth','Market Share & Positioning',"Competitive Dynamics (Porter's 5 Forces)",'Customer Concentration & Satisfaction','Competitive Advantage','Portfolio Synergies']),
-      P5: createPillar('P5','Operational Excellence & Capabilities','How well does the entity execute?',['Core Competencies','Operational Efficiency','Technology & Digital Maturity','Supply Chain & Partnerships','Innovation Capability','Shared Services & Synergies']),
-      P6: createPillar('P6','Organization & People','Is the organization designed and staffed for success?',['Organizational Structure','Talent & Skills','Culture & Values','Employee Engagement','Change Readiness']),
-      P7: createPillar('P7','Risk & Resilience','What could go wrong and how prepared is the entity?',['Strategic Risks','Operational Risks','Financial Risks','Regulatory & Compliance','ESG & Sustainability']),
-      P8: createPillar('P8','Growth & Strategic Options','Where are the opportunities for value creation?',['Organic Growth Vectors','Inorganic Growth','Portfolio Optimization','Digital & AI Opportunities','Blue Ocean Opportunities','Parenting Advantage Opportunities']),
+      P2: createPillar('P2','Governance & Leadership','How is the entity governed and led?',['Board Composition & Effectiveness','Leadership Team Capability','Decision-Making Architecture','Accountability & Performance Management','Parenting Style'], ['P1']),
+      P3: createPillar('P3','Financial Health & Performance','How financially sound and performant is the entity?',['Revenue Trajectory','Profitability Analysis','Liquidity & Solvency','Cash Flow Quality','Capital Allocation Efficiency','Working Capital Management','Portfolio Financial Contribution'], ['P2']),
+      P4: createPillar('P4','Market Position & Competitive Landscape','Where does the entity stand in its market?',['Market Size & Growth','Market Share & Positioning',"Competitive Dynamics (Porter's 5 Forces)",'Customer Concentration & Satisfaction','Competitive Advantage','Portfolio Synergies'], ['P3']),
+      P5: createPillar('P5','Operational Excellence & Capabilities','How well does the entity execute?',['Core Competencies','Operational Efficiency','Technology & Digital Maturity','Supply Chain & Partnerships','Innovation Capability','Shared Services & Synergies'], ['P4']),
+      P6: createPillar('P6','Organization & People','Is the organization designed and staffed for success?',['Organizational Structure','Talent & Skills','Culture & Values','Employee Engagement','Change Readiness'], ['P5']),
+      P7: createPillar('P7','Risk & Resilience','What could go wrong and how prepared is the entity?',['Strategic Risks','Operational Risks','Financial Risks','Regulatory & Compliance','ESG & Sustainability'], ['P6']),
+      P8: createPillar('P8','Growth & Strategic Options','Where are the opportunities for value creation?',['Organic Growth Vectors','Inorganic Growth','Portfolio Optimization','Digital & AI Opportunities','Blue Ocean Opportunities','Parenting Advantage Opportunities'], ['P7']),
     },
     consolidatedSwot: { strengths: [], weaknesses: [], opportunities: [], threats: [] },
     strategicHypothesis: { aiDraft: '', edited: '' },
-    benchmarkData: {}
+    benchmarkData: {},
+    externalAgents: createExternalAgents(),
+    swotAgent: createSwotAgentGate(PILLAR_IDS),
+    // Whether the reviewer has documents to seed an IDI interview guide from — null until they answer the
+    // yes/no prompt. null behaves like true (see idiPathEnabled in wave1Client) so existing entities are
+    // unaffected. false skips idiGuide/idiSynth entirely; external analysis then runs straight off company
+    // documents (see setIdiDocumentsAvailable in wave1Engine).
+    idiDocumentsAvailable: null as boolean | null,
   }
 }
 
@@ -50,6 +108,7 @@ export function createDefaultEntity(name: string, type: string) {
   return {
     id: uuidv4(), name, type: type || 'corporate',
     siagptCollectionId: '',
+    interviewCollectionId: '',
     documents: [],
     assessment: createDefaultEntityAssessment(),
     outputs: defaultOutputs(),
@@ -69,6 +128,7 @@ export function createDefaultProject(name: string, entityName: string, entityTyp
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     documents: [],
     siagptCollectionId: '',
+    interviewCollectionId: '',
     entities: [] as any[],
     assessment: createDefaultEntityAssessment(),
     strategy: { template: 'government', levelNames: ['Vision','Strategic Option','Outcome','Initiative'], nodes: [] },
@@ -76,11 +136,22 @@ export function createDefaultProject(name: string, entityName: string, entityTyp
   }
 }
 
-export function applyEntityPillarResult(entity: any, pillarId: string, result: any) {
-  const p = entity.assessment.pillars[pillarId]
-  if (!p) return
+/** The single rule every pillar-shaped agent's finalScore follows: the average of aiScore and manualScore
+ *  when both are present (aiScore alone doesn't reflect the reviewer's judgment, and vice versa), otherwise
+ *  whichever one is present, otherwise null. Every consumer of finalScore (sidebar, exports, prompts,
+ *  overall-score averages) reads this one field, so this is the only place the blend needs to happen. */
+export function computePillarFinalScore(aiScore: number | null, manualScore: number | null): number | null {
+  if (aiScore != null && manualScore != null) return (aiScore + manualScore) / 2
+  return manualScore ?? aiScore ?? null
+}
+
+/** Mutates any Pillar-shaped agent (an entity's P1-P8 pillar, or a fan-out agent like bench/pestel) with a
+ *  fresh structured result, and appends the raw result to versionHistory as a new immutable version.
+ *  Returns the new version number. Downstream prompt-builders must read from versionHistory[approvedVersion],
+ *  never from these live fields, since a later unapproved re-run overwrites them immediately. */
+export function applyPillarLikeResult(p: any, result: any): number {
   p.aiScore = result.pillarScore
-  p.finalScore = result.pillarScore
+  p.finalScore = computePillarFinalScore(p.aiScore, p.manualScore)
   const summary = result.executiveSummary ?? ''
   p.execSummary.aiDraft = summary
   p.execSummary.edited = summary
@@ -91,7 +162,7 @@ export function applyEntityPillarResult(entity: any, pillarId: string, result: a
       (e: any) => e.name?.toLowerCase().trim() === elName.toLowerCase().trim()
     ) || existingElements[i]
     return {
-      id: existing?.id || `${pillarId}_E${i + 1}`,
+      id: existing?.id || `${p.id}_E${i + 1}`,
       name: elName,
       aiAnswer: el.aiAnswer || '',
       evidenceQuote: el.evidenceQuote || '',
@@ -113,11 +184,94 @@ export function applyEntityPillarResult(entity: any, pillarId: string, result: a
   p.missingInfo = result.missingInfo || []
   p.references = result.references || []
   p.status = 'complete'
+  if (!p.versionHistory) p.versionHistory = []
+  const v = p.versionHistory.length + 1
+  p.versionHistory.push({ v, result, createdAt: new Date().toISOString() })
+  return v
+}
+
+export function applyEntityPillarResult(entity: any, pillarId: string, result: any): number | undefined {
+  const p = entity.assessment.pillars[pillarId]
+  if (!p) return undefined
+  return applyPillarLikeResult(p, result)
+}
+
+function backfillPillarApprovalFields(pillar: any) {
+  if (pillar.versionHistory !== undefined) return
+  pillar.approvedVersion = null
+  pillar.approvedAt = null
+  pillar.approvedBy = null
+  pillar.versionHistory = []
+}
+
+/** Projects persisted before pillars became sequential won't have depIds on P1-P8, and fan-out agents
+ *  (bench/pestel/marketSizing/competitor) never actually had depIds at all (a pre-existing bug — they were
+ *  created with status:'locked' but no depIds, so recomputeWave1Locks treated their empty dep list as
+ *  trivially satisfied and unlocked them on the very first recompute). Backfill depIds for both, and only
+ *  re-lock an agent that's still untouched ('not_started', no prior chat) — never claw back access to one
+ *  a reviewer already started or finished, since that would erase in-progress work under someone's feet.
+ *
+ *  Fan-out agents also used to run unordered/parallel (all four gated only on idiSynth) before they became
+ *  a sequential chain like the pillars; migrate any untouched pestel/marketSizing/competitor off that old
+ *  ['idiSynth'] dep onto the previous fan-out agent, same untouched-only safety rule. */
+function backfillWave1DepIds(pillars: Record<string, any>, externalAgents: any) {
+  PILLAR_IDS.forEach((id, i) => {
+    const p = pillars[id]
+    if (!p || p.depIds !== undefined) return
+    const depIds = i === 0 ? [] : [PILLAR_IDS[i - 1]]
+    p.depIds = depIds
+    if (depIds.length && p.status === 'not_started') p.status = 'locked'
+  })
+  FANOUT_AGENT_IDS.forEach((id, i) => {
+    const agent = externalAgents?.[id]
+    if (!agent) return
+    const chainDep = i === 0 ? ['idiSynth'] : [FANOUT_AGENT_IDS[i - 1]]
+    const untouched = !agent.chatHistory?.length && agent.approvedVersion === null
+    if (agent.depIds === undefined) {
+      agent.depIds = chainDep
+      if (chainDep.length && agent.status === 'not_started') agent.status = 'locked'
+      return
+    }
+    if (i > 0 && untouched && JSON.stringify(agent.depIds) !== JSON.stringify(chainDep)) {
+      agent.depIds = chainDep
+      if (agent.status === 'not_started') agent.status = 'locked'
+    }
+  })
+}
+
+/** Projects created before the Wave 1 approval pipeline shipped won't have externalAgents/swotAgent/
+ *  interviewCollectionId, or the approval fields on their pillars, in their persisted JSON. Since this
+ *  app has no per-record migration framework (everything is one JSONB blob), backfill on read instead —
+ *  loadProject is the single choke-point every route goes through. Idempotent; the backfilled shape is
+ *  only persisted once something actually calls saveProject again. */
+/** Shared by both the top-level project (the "main"/holding entity) and each subsidiary in project.entities. */
+function backfillEntityAssessmentShape(assessment: any) {
+  if (assessment.pillars) {
+    for (const p of Object.values(assessment.pillars) as any[]) backfillPillarApprovalFields(p)
+  }
+  if (!assessment.externalAgents) assessment.externalAgents = createExternalAgents()
+  if (assessment.idiDocumentsAvailable === undefined) assessment.idiDocumentsAvailable = null
+  if (!assessment.swotAgent) assessment.swotAgent = createSwotAgentGate(PILLAR_IDS)
+  else if (assessment.swotAgent.versionHistory === undefined) {
+    assessment.swotAgent.versionHistory = []
+    assessment.swotAgent.approvedVersion = null
+  }
+  if (assessment.pillars) backfillWave1DepIds(assessment.pillars, assessment.externalAgents)
+}
+
+function backfillWave1Shape(project: any) {
+  if (project.interviewCollectionId === undefined) project.interviewCollectionId = ''
+  if (project.assessment) backfillEntityAssessmentShape(project.assessment)
+  for (const entity of (project.entities || [])) {
+    if (entity.interviewCollectionId === undefined) entity.interviewCollectionId = ''
+    if (entity.assessment) backfillEntityAssessmentShape(entity.assessment)
+  }
 }
 
 export async function loadProject(id: string): Promise<any | null> {
   const { data, error } = await supabase.from('projects').select('data').eq('id', id).single()
   if (error || !data) return null
+  backfillWave1Shape(data.data)
   return data.data
 }
 
@@ -135,8 +289,7 @@ export async function saveProject(project: any) {
   if (error) throw new Error(error.message)
 }
 
-export function parseJsonFromText(text: string): any {
-  let cleaned = text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim()
+function findJsonBounds(cleaned: string): { start: number; end: number } {
   const start = cleaned.indexOf('{')
   if (start === -1) throw new Error('No JSON object found in SiaGPT response')
   let depth = 0, inString = false, escape = false, end = -1
@@ -150,7 +303,26 @@ export function parseJsonFromText(text: string): any {
     else if (ch === '}') { depth--; if (depth === 0) { end = i; break } }
   }
   if (end === -1) throw new Error('Malformed JSON in SiaGPT response')
+  return { start, end }
+}
+
+export function parseJsonFromText(text: string): any {
+  const cleaned = text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim()
+  const { start, end } = findJsonBounds(cleaned)
   return JSON.parse(cleaned.slice(start, end + 1))
+}
+
+/**
+ * Same JSON extraction as parseJsonFromText, but also returns whatever free-text narrative preceded the
+ * JSON block. Some Wave 1 assistants narrate their reasoning as markdown (e.g. "Steps G-H — Missing
+ * Information & Interview Questions") before emitting the final structured JSON — that narrative is the
+ * assistant's actual conversational reply to whatever the reviewer just asked, unlike the JSON's fixed
+ * executiveSummary field, which doesn't change shape based on the conversation.
+ */
+export function parseJsonWithNarrative(text: string): { result: any; narrative: string } {
+  const cleaned = text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim()
+  const { start, end } = findJsonBounds(cleaned)
+  return { result: JSON.parse(cleaned.slice(start, end + 1)), narrative: cleaned.slice(0, start).trim() }
 }
 
 // pdfjs-dist (used internally by pdf-parse) reaches for the browser's DOMMatrix

@@ -163,48 +163,6 @@ export const aiApi = {
     }))
   },
 
-  assessPillarStream: async function* (projectId: string, pillarId: string) {
-    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/assess/${pillarId}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
-    }))
-  },
-
-  assessBatchStream: async function* (projectId: string, pillarIds: string[]) {
-    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/assess-batch`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
-      body: JSON.stringify({ pillarIds }),
-    }))
-  },
-
-  assessEntityPillarStream: async function* (projectId: string, entityId: string, pillarId: string) {
-    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/${entityId}/assess/${pillarId}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
-    }))
-  },
-
-  assessEntityBatchStream: async function* (projectId: string, entityId: string, pillarIds?: string[]) {
-    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/${entityId}/assess-batch`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
-      body: JSON.stringify({ pillarIds }),
-    }))
-  },
-
-  assessEntitiesStream: async function* (projectId: string, entityIds?: string[]) {
-    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/assess-entities`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
-      body: JSON.stringify({ entityIds }),
-    }))
-  },
 }
 
 export const entitiesApi = {
@@ -214,14 +172,47 @@ export const entitiesApi = {
 }
 
 export const entityDocumentsApi = {
-  upload: async (projectId: string, entityId: string, files: File[], docType: string, docLabel: string) => {
+  upload: async (
+    projectId: string, entityId: string, files: File[], docType: string, docLabel: string,
+    targetCollection?: 'main' | 'interview'
+  ) => {
     const uploadedFiles = await uploadFilesViaBlob(projectId, files)
     return api.post(`/documents/${projectId}/${entityId}/upload`, {
       files: uploadedFiles,
       docType: docType || 'general',
       docLabel: docLabel || '',
+      ...(targetCollection ? { targetCollection } : {}),
     }, { timeout: 120000 })
   },
   delete: (projectId: string, entityId: string, docId: string) => api.delete(`/documents/${projectId}/${entityId}/${docId}`),
   embeddingStatus: (projectId: string, entityId: string) => api.get(`/documents/${projectId}/${entityId}/embedding-status`),
+}
+
+// Wave 1 (Diagnostic) multi-agent pipeline — every agent runs only in response to a human chat message
+// (no autonomous "run" trigger), then a human explicitly approves the version that's passed downstream.
+export const wave1Api = {
+  chatWithAgent: async function* (projectId: string, entityId: string, agentId: string, message: string) {
+    yield* sseStream(await fetch(`${API_ROOT}/ai/${projectId}/${entityId}/agent/${agentId}/chat`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(projectId) },
+      body: JSON.stringify({ message }),
+    }))
+  },
+
+  approveAgent: (projectId: string, entityId: string, agentId: string, scores?: { aiScore: number; manualScore: number }) =>
+    api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/approve`, scores || {}),
+
+  unlockAgent: (projectId: string, entityId: string, agentId: string) =>
+    api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/unlock`, {}),
+
+  resetAgent: (projectId: string, entityId: string, agentId: string) =>
+    api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/reset`, {}),
+
+  // Reviewer's manual override score for a pillar agent — editable any time, independent of approval.
+  setManualScore: (projectId: string, entityId: string, agentId: string, manualScore: number | null) =>
+    api.patch(`/ai/${projectId}/${entityId}/agent/${agentId}/score`, { manualScore }),
+
+  setIdiDocumentsAvailable: (projectId: string, entityId: string, hasDocuments: boolean) =>
+    api.post(`/ai/${projectId}/${entityId}/idi-choice`, { hasDocuments }),
 }

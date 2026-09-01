@@ -3,6 +3,8 @@ import React, { useState, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Copy, Check, Pencil, Eye, X, FileDown } from 'lucide-react'
+import { MarkdownTable } from '@/components/MarkdownTable'
+import { copyRenderedElement } from '@/lib/copyRichContent'
 
 // Strip any trailing JSON appendix blocks the agent may have appended to an older report
 function cleanReportContent(raw: string): string {
@@ -29,7 +31,12 @@ export default function MarkdownReportPanel({ reportId, reportTitle, content, la
   const printRef = useRef<HTMLDivElement>(null)
 
   const handleDownloadPDF = useCallback(() => {
-    const bodyHtml = printRef.current?.innerHTML
+    if (!printRef.current) return
+    // Strip the on-screen export toolbar (copy/download buttons) out of the clone —
+    // it has no meaning on a printed page and isn't styled by this print stylesheet.
+    const clone = printRef.current.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('.md-table-toolbar').forEach(node => node.remove())
+    const bodyHtml = clone.innerHTML
     if (!bodyHtml) return
 
     const printWindow = window.open('', '_blank', 'width=960,height=800')
@@ -142,7 +149,14 @@ ${bodyHtml}
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(mode === 'edit' ? draft : cleaned)
+      // In view mode, copy the rendered report (formatted HTML + plain text) so pasting
+      // into Word/Docs/email keeps headings, bold and tables — same as other chat UIs'
+      // copy buttons. In edit mode there's no rendered DOM yet, so copy the raw markdown.
+      if (mode === 'view' && printRef.current) {
+        await copyRenderedElement(printRef.current)
+      } else {
+        await navigator.clipboard.writeText(draft)
+      }
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -156,7 +170,7 @@ ${bodyHtml}
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
-  }, [content, draft, mode])
+  }, [draft, mode, cleaned])
 
   const handleSave = () => {
     onSave(draft)
@@ -224,7 +238,7 @@ ${bodyHtml}
             {/* Copy */}
             <button
               onClick={handleCopy}
-              title="Copy markdown"
+              title="Copy report"
               style={{
                 display: 'flex', alignItems: 'center', gap: '6px',
                 padding: '7px 14px',
@@ -314,7 +328,7 @@ ${bodyHtml}
         <div style={{ flex: 1, overflow: 'auto', padding: '28px 32px' }}>
           {mode === 'view' ? (
             <div className="markdown-report-body" ref={printRef}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ table: MarkdownTable }}>
                 {cleaned}
               </ReactMarkdown>
             </div>

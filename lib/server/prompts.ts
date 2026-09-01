@@ -23,81 +23,56 @@ export function getAgentPersona(pillarId: string): string {
   return `${personas[pillarId] || 'You are a senior strategy consultant at SIA Partners.'}\n\n`
 }
 
+// The pillar assistants are pre-configured in Langflow with their persona, entity/pillar context, and
+// output JSON schema — we only need to send the guiding rubric alongside the reviewer's instruction
+// (see runWave1Agent's pillar-kind composition in wave1Engine.ts).
 export function buildAssessmentPrompt(project: any, pillarId: string): string {
-  const pillar = project.assessment.pillars[pillarId]
-  const elementNames: string[] = pillar.elements.map((e: any) => e.name)
+  return buildRubricSection(project, pillarId)
+}
 
-  const elementsTemplate = elementNames.map(name => `    {
-      "name": ${JSON.stringify(name)},
-      "aiAnswer": "• Bullet finding 1\\n• Bullet finding 2\\n• Bullet finding 3",
-      "evidenceQuote": "Verbatim quote from documents or 'Not found in documents'",
-      "sourceDocument": "Exact filename as found in RAG or 'N/A'",
-      "score": 0,
-      "scoreRationale": "2-3 sentences citing specific document evidence that justifies this score.",
-      "dataGap": "Specific missing information that would improve this assessment, or null"
-    }`).join(',\n')
+// ─── Wave 1 external-analysis agents ──────────────────────────────────────────
 
-  return `${getAgentPersona(pillarId)}You are assessing ${project.entityName} (${project.entityType}) for Pillar ${pillarId}: ${pillar.name}.
-${pillar.description}
+export function buildIdiGuidePrompt(entity: { name: string; type: string }): string {
+  return `Entity: ${entity.name} (${entity.type})`
+}
 
-${buildRubricSection(project, pillarId)}
+export function buildIdiSynthPrompt(entity: { name: string; type: string }, approvedGuideText: string): string {
+  return `You are a senior strategy consultant at SIA Partners synthesizing primary research for ${entity.name} (${entity.type}).
 
-Analyze all documents available to you and produce a complete, evidence-based assessment. Never fabricate data. For any element where evidence is insufficient, state the gap explicitly.
+You have access to two inputs via the RAG collections attached to this call: (1) the company's core documents, and (2) the raw interview transcripts collected by human interviewers using the guide below.
 
-═══════════════════════════════════════════════════════════
-OUTPUT REQUIREMENTS — STRICT JSON FORMAT
-═══════════════════════════════════════════════════════════
-Return ONLY valid JSON. No markdown. No text before or after the JSON block.
-All string values must be properly escaped. Use EXACTLY this structure with EXACTLY these field names:
+━━━ APPROVED INTERVIEW GUIDE ━━━
+${approvedGuideText || 'Not available.'}
 
-{
-  "pillarScore": 0.0,
-  "executiveSummary": "• Key finding 1\\n• Key finding 2\\n• Key finding 3\\n• Key finding 4\\n• Key finding 5",
-  "elements": [
-${elementsTemplate}
-  ],
-  "swot": {
-    "strengths": ["Specific strength directly evidenced in documents", "Second specific strength from documents"],
-    "weaknesses": ["Specific weakness identified in documents", "Second specific weakness from documents"],
-    "opportunities": ["Opportunity suggested by strategic analysis of documents", "Second opportunity from analysis"],
-    "threats": ["Risk or threat identified in documents", "Second threat from documents"]
-  },
-  "interviewQuestions": {
-    "leadership": [
-      "Dynamically generated question 1 referencing a specific finding or gap",
-      "Dynamically generated question 2 referencing a specific finding or gap"
-    ],
-    "team": [
-      "Dynamically generated question 1 referencing a specific finding or gap",
-      "Dynamically generated question 2 referencing a specific finding or gap"
-    ],
-    "gapFilling": [
-      {
-        "gap": "Exact description of the missing data point from your analysis",
-        "question": "Hyper-specific question to retrieve this exact missing data",
-        "element": "The element name this gap belongs to"
-      }
-    ]
-  },
-  "missingInfo": [
-    {
-      "item": "Specific missing data point identified during analysis",
-      "impact": "How this gap reduces assessment accuracy or confidence",
-      "priority": "high",
-      "suggestedSource": "Specific document type, system, or person who holds this data"
-    }
-  ],
-  "references": [
-    {
-      "title": "Full title of source document used",
-      "url": "Direct URL or 'N/A'",
-      "type": "One of: Official Report, Academic, Statistical, Regulatory, Strategy Document",
-      "relevance": "One sentence explaining why this source is relevant to this pillar.",
-      "publishedBy": "Organization name",
-      "year": "YYYY"
-    }
-  ]
-}`
+Synthesize the interview transcripts against the guide's themes. For each theme: summarize what interviewees said, note points of consensus vs. disagreement across interviewees, and flag anything that contradicts or extends the documentary evidence.
+
+Write the synthesis as structured markdown with one section per theme plus a closing "Implications for external analysis" section highlighting findings that should inform benchmarking, PESTEL, market sizing, and competitor analysis.`
+}
+
+// The entity-SWOT assistant is pre-configured in Langflow with its persona and output JSON schema — we
+// only need to send the raw approved conversation transcripts alongside the reviewer's instruction
+// (see runWave1Agent's swot-kind composition in wave1Engine.ts). No pre-extracted score/SWOT JSON: the
+// assistant reads each conversation itself and derives the strengths/weaknesses/opportunities/threats.
+export function buildEntitySwotPrompt(
+  entity: any,
+  pillarTranscripts: { pillar: string; transcript: string }[],
+  fanoutTranscripts: { name: string; transcript: string }[]
+): string {
+  const pillarsText = pillarTranscripts
+    .map(p => `### ${p.pillar}\n${p.transcript || '(no conversation)'}`)
+    .join('\n\n')
+  const fanoutText = fanoutTranscripts
+    .map(f => `### ${f.name}\n${f.transcript || '(no conversation)'}`)
+    .join('\n\n')
+  return `Below are the full raw conversation transcripts between the reviewer and each internal pillar and external-analysis agent for this entity. There is no pre-extracted score or SWOT data — read each conversation yourself and derive the strengths, weaknesses, opportunities, and threats it surfaces.
+
+INTERNAL PILLAR CONVERSATIONS:
+${pillarsText}
+
+EXTERNAL ANALYSIS CONVERSATIONS (benchmarking, PESTEL, market sizing, competitor analysis):
+${fanoutText}
+
+Run the consolidation now: synthesize all of the above into one consolidated entity-level SWOT and a strategic hypothesis.`
 }
 
 export function buildReportPrompts(

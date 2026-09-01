@@ -1,3 +1,3 @@
 'use client'
-import Dashboard from '@/components/pages/Dashboard'
-export default function DashboardRoute() { return <Dashboard /> }
+import DashboardPage from '@/components/pages/DashboardPage'
+export default function DashboardRoute() { return <DashboardPage /> }

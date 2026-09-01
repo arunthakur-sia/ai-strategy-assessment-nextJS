@@ -58,11 +58,16 @@ export function parseCitations(text: string): {
   return { segments, allCitations }
 }
 
-/** Small inline badge showing a citation number with a hover popover for source title + link. */
-export function SourceBadge({ num, onClick }: { num: number; onClick?: () => void }) {
+/** Small inline badge showing a citation number with a hover popover for source title + link.
+ *  Reads from the global source-meta cache by default; pass `metaOverride` to source it locally
+ *  instead (e.g. a chat drawer whose citation numbers are scoped to one conversation and would
+ *  otherwise collide with unrelated numbers in the app-wide cache). */
+export function SourceBadge({ num, onClick, metaOverride }: {
+  num: number; onClick?: () => void; metaOverride?: { title: string; url: string | null }
+}) {
   const [open, setOpen] = useState(false)
   const globalSourceMeta = useStore(s => s.globalSourceMeta)
-  const meta = globalSourceMeta[num.toString()]
+  const meta = metaOverride ?? globalSourceMeta[num.toString()]
 
   const badge = (
     <span
@@ -114,8 +119,9 @@ export function SourceBadge({ num, onClick }: { num: number; onClick?: () => voi
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
         >
-          <div
+          <span
             style={{
+              display: 'block',
               fontSize: '12px',
               fontWeight: 600,
               color: 'var(--sia-navy)',
@@ -124,7 +130,7 @@ export function SourceBadge({ num, onClick }: { num: number; onClick?: () => voi
             }}
           >
             {meta.title}
-          </div>
+          </span>
           {meta.url && (
             <a
               href={meta.url}

@@ -317,3 +317,34 @@ textarea.form-input { resize: vertical; min-height: 80px; line-height: 1.5; }
 .chat-response-body tbody td { padding: 7px 10px; border-bottom: 1px solid rgba(69,85,105,0.1); vertical-align: top; }
 .chat-response-body hr { border: none; border-top: 1px solid rgba(0,222,204,0.2); margin: 12px 0; }
 .chat-response-body a { color: #077C84; text-decoration: underline; text-decoration-color: rgba(0,222,204,0.4); }
+
+/* ── Per-table export toolbar (copy CSV / download Excel & PNG) ─────────────── */
+.md-table-wrapper { position: relative; margin: 10px 0; }
+.md-table-wrapper .md-table-scroll { overflow-x: auto; }
+.md-table-wrapper table { margin: 0 !important; }
+.md-table-toolbar {
+  position: absolute; top: -28px; right: 0;
+  display: flex; align-items: center; gap: 4px;
+  z-index: 2;
+}
+.md-table-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  border: 1px solid rgba(23,48,68,0.12);
+  background: #fff;
+  color: var(--sia-medium-gray, #67788C);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.md-table-btn:hover { background: rgba(0,222,204,0.1); color: #077C84; }
+
+.md-table-toolbar--fullscreen { position: static; justify-content: flex-end; padding-right: 36px; }
+.md-table-fullscreen-scroll { overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* Dialog content renders in a portal outside .chat-response-body / .markdown-report-body,
+   so the table needs its own baseline styling rather than inheriting from either ancestor. */
+.md-table-fullscreen-scroll table { width: 100%; margin: 0 !important; border-collapse: collapse; font-size: 13px; }
+.md-table-fullscreen-scroll thead tr { background: var(--sia-navy, #1B2A4A); color: #fff; }
+.md-table-fullscreen-scroll thead th { padding: 10px 14px; text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+.md-table-fullscreen-scroll tbody tr:nth-child(even) { background: rgba(0,222,204,0.04); }
+.md-table-fullscreen-scroll tbody td { padding: 9px 14px; border-bottom: 1px solid rgba(69,85,105,0.1); vertical-align: top; }
