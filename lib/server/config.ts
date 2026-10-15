@@ -11,6 +11,16 @@ const configuredOrigins = parseOrigins(
   process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:3000'
 )
 
+/** Env var that supplies each Wave 2 assistant id — used to tell the user exactly what to set when one is missing. */
+export const WAVE2_ENV_VARS: Record<string, string> = {
+  direction: 'SIAGPT_ASSISTANT_W2_STRATEGIC_DIRECTION',
+  vmv: 'SIAGPT_ASSISTANT_W2_VMV',
+  optionsDesign: 'SIAGPT_ASSISTANT_W2_OPTIONS_DESIGN',
+  optionsEval: 'SIAGPT_ASSISTANT_W2_OPTIONS_EVAL',
+  swotB: 'SIAGPT_ASSISTANT_W2_SWOT_B',
+  shiftAgenda: 'SIAGPT_ASSISTANT_W2_SHIFT_AGENDA',
+}
+
 export const config = {
   sessionSecret: process.env.SESSION_SECRET || 'sia-dev-secret-change-in-production',
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -61,5 +71,22 @@ export const config = {
     competitor:   process.env.SIAGPT_ASSISTANT_COMPETITOR   || '',
     entitySwot:   process.env.SIAGPT_ASSISTANT_ENTITY_SWOT  || process.env.SIAGPT_ASSISTANT_SWOT || '',
   } as Record<string, string>,
+  // Wave 2 (Formulation) agents — one SiaGPT assistant per node in the Wave 2 flow diagram.
+  wave2AssistantIds: {
+    direction:     process.env.SIAGPT_ASSISTANT_W2_STRATEGIC_DIRECTION || '',
+    vmv:           process.env.SIAGPT_ASSISTANT_W2_VMV                 || '',
+    optionsDesign: process.env.SIAGPT_ASSISTANT_W2_OPTIONS_DESIGN      || '',
+    optionsEval:   process.env.SIAGPT_ASSISTANT_W2_OPTIONS_EVAL        || '',
+    swotB:         process.env.SIAGPT_ASSISTANT_W2_SWOT_B              || '',
+    shiftAgenda:   process.env.SIAGPT_ASSISTANT_W2_SHIFT_AGENDA        || '',
+  } as Record<string, string>,
+  // LiteLLM gateway (OpenAI-compatible) — used only to turn an approved agent conversation into an
+  // exportable report; independent of the SiaGPT agents above.
+  reportLlm: {
+    baseUrl: (process.env.REPORT_LLM_BASE_URL || 'https://litellm.heka.ai/v1').replace(/\/+$/, ''),
+    apiKey: process.env.REPORT_LLM_API_KEY || process.env.OPENAI_API_KEY || '',
+    model: process.env.REPORT_LLM_MODEL || 'bedrock-opus-4.6',
+    maxTokens: Number(process.env.REPORT_LLM_MAX_TOKENS) || 128000,
+  },
   isDev: (process.env.NODE_ENV || 'development') === 'development',
 }

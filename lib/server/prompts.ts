@@ -75,6 +75,26 @@ ${fanoutText}
 Run the consolidation now: synthesize all of the above into one consolidated entity-level SWOT and a strategic hypothesis.`
 }
 
+// ─── Wave 2 (Formulation) agents ──────────────────────────────────────────────
+// The Wave 2 assistants are pre-configured in SiaGPT with their persona and output format — we only hand
+// them the entity and every upstream output the flow diagram routes into this node (always the frozen,
+// human-approved version, never a live draft). Company documents arrive via the attached collection.
+export function buildWave2Prompt(
+  entity: { name: string; type: string },
+  agentLabel: string,
+  inputs: { label: string; text: string }[]
+): string {
+  const sections = inputs.length
+    ? inputs.map(i => `━━━ ${i.label} (approved) ━━━\n${i.text || '(approved with no recorded content)'}`).join('\n\n')
+    : '(none — this is the first step of Wave 2; work from the company documents)'
+  return `Entity: ${entity.name} (${entity.type})
+Step: ${agentLabel}
+
+Upstream outputs approved by the reviewer, to be used as the basis for this step:
+
+${sections}`
+}
+
 export function buildReportPrompts(
   entityName: string, entityType: string, pillarsData: any, swotData: any
 ): Record<string, string> {

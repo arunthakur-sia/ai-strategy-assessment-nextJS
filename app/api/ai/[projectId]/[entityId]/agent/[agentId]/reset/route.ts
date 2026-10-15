@@ -3,7 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadProject, saveProject } from '@/lib/server/helpers'
 import { requireProjectAuth } from '@/lib/server/auth'
-import { resetWave1Agent, resolveWave1Entity, WAVE1_AGENT_IDS } from '@/lib/server/wave1Engine'
+import { resolveWave1Entity } from '@/lib/server/wave1Engine'
+import { ALL_AGENT_IDS, recomputeAllLocks, resetAgent } from '@/lib/server/wave2Engine'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -14,7 +15,7 @@ export async function POST(
 ) {
   const { projectId, entityId, agentId } = await params
   if (!await requireProjectAuth(request, projectId)) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (!WAVE1_AGENT_IDS.includes(agentId)) return NextResponse.json({ error: 'Unknown agent' }, { status: 400 })
+  if (!ALL_AGENT_IDS.includes(agentId)) return NextResponse.json({ error: 'Unknown agent' }, { status: 400 })
 
   try {
     const project = await loadProject(projectId)
@@ -22,7 +23,8 @@ export async function POST(
     const entity = resolveWave1Entity(project, entityId)
     if (!entity) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
 
-    resetWave1Agent(entity, agentId)
+    resetAgent(entity, agentId)
+    recomputeAllLocks(entity)
     await saveProject(project)
 
     return NextResponse.json({ success: true, entityId, agentId })

@@ -5,7 +5,28 @@ import { visit } from 'unist-util-visit'
 // token (e.g. "1-5") is itself a unique source key — the analogue of the uuid in the pillar/fanout
 // assistants' "**[<48,uuid>]**" format (see CitedText.tsx), which this plugin does not touch. It is NOT
 // a "document-chunk" pair to split apart; two different tokens can be entirely unrelated sources.
-const WAVE1_GROUP_RE = /\[(\d{1,4}-\d{1,4}(?:\s*,\s*\d{1,4}-\d{1,4})*)\]/g
+//
+// Wave 2 agents cite by raw source uuid instead — in prose as "[<uuid>]" / "**[<48,uuid>]**" and, in the
+// response tables, as a bare uuid in a "Source" cell. Those are accepted here too, as tokens that are just
+// the uuid itself, so they render as the same clickable numbered bubble.
+const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+const ITEM = `(?:<\\d+\\s*,\\s*${UUID}>|${UUID}|\\d{1,4}-\\d{1,4})`
+const WAVE1_GROUP_RE = new RegExp(
+  `\\*{0,2}\\[\\s*(${ITEM}(?:\\s*[,;]\\s*${ITEM})*)\\s*\\]\\*{0,2}|\\b(${UUID})\\b`, 'g'
+)
+const TOKEN_RE = new RegExp(`<\\d+\\s*,\\s*(${UUID})>|(${UUID})|(\\d{1,4}-\\d{1,4})`, 'g')
+
+function tokensOf(match: RegExpExecArray): string[] {
+  const raw = match[1] ?? match[2]
+  const out: string[] = []
+  TOKEN_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = TOKEN_RE.exec(raw)) !== null) {
+    const t = (m[1] ?? m[2] ?? m[3]).toLowerCase()
+    if (!out.includes(t)) out.push(t)
+  }
+  return out
+}
 
 /**
  * A remark plugin that splices Wave 1 citation markers out of text nodes and replaces them with a
@@ -33,7 +54,7 @@ export function remarkWave1Citations() {
         if (match.index > lastIndex) {
           newNodes.push({ type: 'text', value: value.slice(lastIndex, match.index) })
         }
-        const tokens = Array.from(new Set(match[1].split(',').map(t => t.trim())))
+        const tokens = tokensOf(match)
         newNodes.push({
           type: 'wave1Citation',
           data: { hName: 'wave1cite', hProperties: { tokens: tokens.join(',') } },
@@ -56,9 +77,22 @@ export function extractWave1Tokens(text: string): string[] {
   WAVE1_GROUP_RE.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = WAVE1_GROUP_RE.exec(text)) !== null) {
-    for (const token of match[1].split(',').map(t => t.trim())) {
+    for (const token of tokensOf(match)) {
       if (!seen.has(token)) { seen.add(token); ordered.push(token) }
     }
   }
   return ordered
+}
+
+/** Rewrites every citation marker in `text` to a plain "[n]" / "[n, m]" using a conversation-wide
+ *  token → display-number map (the same one the sources panel uses), so exported reports cite sources by
+ *  the numbers listed in their references section. Tokens missing from the map are dropped. */
+export function replaceWave1Citations(text: string, tokenToNum: Record<string, number>): string {
+  WAVE1_GROUP_RE.lastIndex = 0
+  return text.replace(WAVE1_GROUP_RE, (...args) => {
+    const m = args.slice(0, args.length - 2) as any
+    const match = [m[0], m[1], m[2]] as unknown as RegExpExecArray
+    const nums = Array.from(new Set(tokensOf(match).map(t => tokenToNum[t]).filter(n => n != null))).sort((a, b) => a - b)
+    return nums.length ? `[${nums.join(', ')}]` : ''
+  })
 }

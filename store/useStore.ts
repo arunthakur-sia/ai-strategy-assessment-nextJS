@@ -26,8 +26,8 @@ interface Pillar {
   swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] }
   interviewQuestions: string[]
   chatHistory: any[]
-  // P1-P8 are locked until the previous pillar (depIds[0]) is approved; the external fan-out agents
-  // (bench/pestel/marketSizing/competitor) reuse this same Pillar shape but depend on IDI Synth instead.
+  // P1-P8 have no dependencies (any can run at any time); the external fan-out agents
+  // (bench/pestel/marketSizing/competitor) reuse this same Pillar shape and depend only on IDI Synth.
   status: 'locked' | 'not_started' | 'in_progress' | 'complete'
   depIds: string[]
   /** Version number (matches an entry in versionHistory) the human has approved as canonical; null = not yet approved. */
@@ -43,7 +43,7 @@ interface Pillar {
 /** IDI Guide / IDI Synth — unscored narrative agents in the Wave 1 external-analysis pipeline. */
 export interface NarrativeAgent {
   id: string
-  status: 'locked' | 'not_started' | 'in_progress' | 'complete'
+  status: 'locked' | 'not_started' | 'in_progress' | 'complete' | 'skipped'
   depIds: string[]
   /** Only set on IDI Synth: gates it on a human uploading interview transcripts as their own collection. */
   uploadDep?: { label: string; hint: string; done: boolean; collectionId: string | null }
@@ -80,6 +80,12 @@ interface EntityAssessment {
     competitor: Pillar
   }
   swotAgent: SwotAgentGate
+  /** Wave 2 (Formulation) — see lib/wave2Shared.ts for the agent ids and dependency edges. */
+  wave2: {
+    /** null until the reviewer answers; behaves like true. false skips the optional strategic-options step. */
+    optionsEnabled: boolean | null
+    agents: Record<string, NarrativeAgent>
+  }
 }
 
 export interface SubsidiaryEntity {

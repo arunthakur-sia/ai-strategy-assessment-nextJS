@@ -214,6 +214,9 @@ textarea.form-input { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+.working-bar { position: relative; height: 3px; margin-top: 8px; border-radius: 2px; overflow: hidden; background: rgba(0,0,0,0.08); }
+.working-bar::after { content: ''; position: absolute; inset: 0; width: 30%; border-radius: 2px; background: var(--sia-medium-teal); animation: shimmer 1.4s ease-in-out infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes slideIn { from { transform: translateX(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
 
@@ -348,3 +351,15 @@ textarea.form-input { resize: vertical; min-height: 80px; line-height: 1.5; }
 .md-table-fullscreen-scroll thead th { padding: 10px 14px; text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
 .md-table-fullscreen-scroll tbody tr:nth-child(even) { background: rgba(0,222,204,0.04); }
 .md-table-fullscreen-scroll tbody td { padding: 9px 14px; border-bottom: 1px solid rgba(69,85,105,0.1); vertical-align: top; }
+
+/* Export-report preview (ExportReportButton) — also what gets cloned into the PDF print window */
+.report-preview h1 { font-size: 20px; font-weight: 800; color: #1B2A4A; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 2px solid #C9A95E; }
+.report-preview h2 { font-size: 16px; font-weight: 700; color: #1B2A4A; margin: 24px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #E8ECEF; }
+.report-preview h3 { font-size: 14px; font-weight: 700; color: #1B2A4A; margin: 18px 0 8px; }
+.report-preview p { margin: 0 0 11px; }
+.report-preview ul { list-style: disc; padding-left: 22px; margin: 0 0 11px; }
+.report-preview ol { list-style: decimal; padding-left: 22px; margin: 0 0 11px; }
+.report-preview table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 12.5px; }
+.report-preview thead tr { background: #1B2A4A; color: #fff; }
+.report-preview th, .report-preview td { padding: 7px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid #E8ECEF; }
+.report-preview blockquote { margin: 14px 0; padding: 10px 16px; background: #EEF1F7; border-left: 4px solid #1B2A4A; }

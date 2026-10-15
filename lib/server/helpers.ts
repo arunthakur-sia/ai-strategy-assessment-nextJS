@@ -1,6 +1,7 @@
 import 'server-only'
 import { v4 as uuidv4 } from 'uuid'
 import { supabase } from './db'
+import { WAVE2_ORDER, wave2DepIds, wave2OptionsEnabled, recomputeWave2Locks } from '../wave2Shared'
 
 export function createPillar(id: string, name: string, description: string, elementNames: string[], depIds: string[] = []) {
   return {
@@ -49,13 +50,23 @@ export function createExternalAgents() {
       label: 'Interview transcripts',
       hint: 'Upload the raw interview results collected by human interviewers using the approved guide. This creates a collection passed to IDI Synth as input.',
     }),
-    // Fan-out agents run strictly in sequence, same as pillars: each is locked until the previous one is
-    // approved. Only bench's incoming dependency (idiSynth vs. none) is re-wired by setIdiDocumentsAvailable.
+    // The only gate on external analysis is IDI: all four fan-out agents wait on an approved idiSynth and
+    // are otherwise independent of each other. setIdiDocumentsAvailable drops that dependency (to []) when
+    // the reviewer has no interview documents and the IDI steps are skipped.
     bench: createPillar('bench', FANOUT_NAMES.bench, 'How does the entity compare against relevant peers?', FANOUT_ELEMENTS.bench, ['idiSynth']),
-    pestel: createPillar('pestel', FANOUT_NAMES.pestel, 'What macro-environmental factors affect the entity?', FANOUT_ELEMENTS.pestel, ['bench']),
-    marketSizing: createPillar('marketSizing', FANOUT_NAMES.marketSizing, "What is the entity's addressable market opportunity?", FANOUT_ELEMENTS.marketSizing, ['pestel']),
-    competitor: createPillar('competitor', FANOUT_NAMES.competitor, 'Who competes with the entity and how does it stack up?', FANOUT_ELEMENTS.competitor, ['marketSizing']),
+    pestel: createPillar('pestel', FANOUT_NAMES.pestel, 'What macro-environmental factors affect the entity?', FANOUT_ELEMENTS.pestel, ['idiSynth']),
+    marketSizing: createPillar('marketSizing', FANOUT_NAMES.marketSizing, "What is the entity's addressable market opportunity?", FANOUT_ELEMENTS.marketSizing, ['idiSynth']),
+    competitor: createPillar('competitor', FANOUT_NAMES.competitor, 'Who competes with the entity and how does it stack up?', FANOUT_ELEMENTS.competitor, ['idiSynth']),
   }
+}
+
+/** Wave 2 (Formulation): six unscored narrative agents whose dependency edges come from the functional flow
+ *  diagram (see lib/wave2Shared.ts). optionsEnabled is the on/off switch for the diagram's optional
+ *  "Strategic Options" step — null until the reviewer answers, which behaves like true. */
+export function createWave2State() {
+  const agents: Record<string, any> = {}
+  for (const id of WAVE2_ORDER) agents[id] = createNarrativeAgent(id, wave2DepIds(id, true))
+  return { optionsEnabled: null as boolean | null, agents }
 }
 
 export function createSwotAgentGate(pillarIds: string[]) {
@@ -70,21 +81,22 @@ export function createSwotAgentGate(pillarIds: string[]) {
 export function createDefaultEntityAssessment() {
   return {
     pillars: {
-      // Pillars run strictly in sequence: each one is locked until the previous pillar is approved.
+      // Pillars are independent: a reviewer can run and approve any of them at any time, in any order.
       P1: createPillar('P1','Strategic Identity & Vision',"What is the entity's reason for being and where is it headed?",['Mission & Vision Clarity','Strategic Intent','Value Proposition','Strategic Coherence','Parenting Purpose']),
-      P2: createPillar('P2','Governance & Leadership','How is the entity governed and led?',['Board Composition & Effectiveness','Leadership Team Capability','Decision-Making Architecture','Accountability & Performance Management','Parenting Style'], ['P1']),
-      P3: createPillar('P3','Financial Health & Performance','How financially sound and performant is the entity?',['Revenue Trajectory','Profitability Analysis','Liquidity & Solvency','Cash Flow Quality','Capital Allocation Efficiency','Working Capital Management','Portfolio Financial Contribution'], ['P2']),
-      P4: createPillar('P4','Market Position & Competitive Landscape','Where does the entity stand in its market?',['Market Size & Growth','Market Share & Positioning',"Competitive Dynamics (Porter's 5 Forces)",'Customer Concentration & Satisfaction','Competitive Advantage','Portfolio Synergies'], ['P3']),
-      P5: createPillar('P5','Operational Excellence & Capabilities','How well does the entity execute?',['Core Competencies','Operational Efficiency','Technology & Digital Maturity','Supply Chain & Partnerships','Innovation Capability','Shared Services & Synergies'], ['P4']),
-      P6: createPillar('P6','Organization & People','Is the organization designed and staffed for success?',['Organizational Structure','Talent & Skills','Culture & Values','Employee Engagement','Change Readiness'], ['P5']),
-      P7: createPillar('P7','Risk & Resilience','What could go wrong and how prepared is the entity?',['Strategic Risks','Operational Risks','Financial Risks','Regulatory & Compliance','ESG & Sustainability'], ['P6']),
-      P8: createPillar('P8','Growth & Strategic Options','Where are the opportunities for value creation?',['Organic Growth Vectors','Inorganic Growth','Portfolio Optimization','Digital & AI Opportunities','Blue Ocean Opportunities','Parenting Advantage Opportunities'], ['P7']),
+      P2: createPillar('P2','Governance & Leadership','How is the entity governed and led?',['Board Composition & Effectiveness','Leadership Team Capability','Decision-Making Architecture','Accountability & Performance Management','Parenting Style']),
+      P3: createPillar('P3','Financial Health & Performance','How financially sound and performant is the entity?',['Revenue Trajectory','Profitability Analysis','Liquidity & Solvency','Cash Flow Quality','Capital Allocation Efficiency','Working Capital Management','Portfolio Financial Contribution']),
+      P4: createPillar('P4','Market Position & Competitive Landscape','Where does the entity stand in its market?',['Market Size & Growth','Market Share & Positioning',"Competitive Dynamics (Porter's 5 Forces)",'Customer Concentration & Satisfaction','Competitive Advantage','Portfolio Synergies']),
+      P5: createPillar('P5','Operational Excellence & Capabilities','How well does the entity execute?',['Core Competencies','Operational Efficiency','Technology & Digital Maturity','Supply Chain & Partnerships','Innovation Capability','Shared Services & Synergies']),
+      P6: createPillar('P6','Organization & People','Is the organization designed and staffed for success?',['Organizational Structure','Talent & Skills','Culture & Values','Employee Engagement','Change Readiness']),
+      P7: createPillar('P7','Risk & Resilience','What could go wrong and how prepared is the entity?',['Strategic Risks','Operational Risks','Financial Risks','Regulatory & Compliance','ESG & Sustainability']),
+      P8: createPillar('P8','Growth & Strategic Options','Where are the opportunities for value creation?',['Organic Growth Vectors','Inorganic Growth','Portfolio Optimization','Digital & AI Opportunities','Blue Ocean Opportunities','Parenting Advantage Opportunities']),
     },
     consolidatedSwot: { strengths: [], weaknesses: [], opportunities: [], threats: [] },
     strategicHypothesis: { aiDraft: '', edited: '' },
     benchmarkData: {},
     externalAgents: createExternalAgents(),
     swotAgent: createSwotAgentGate(PILLAR_IDS),
+    wave2: createWave2State(),
     // Whether the reviewer has documents to seed an IDI interview guide from — null until they answer the
     // yes/no prompt. null behaves like true (see idiPathEnabled in wave1Client) so existing entities are
     // unaffected. false skips idiGuide/idiSynth entirely; external analysis then runs straight off company
@@ -204,39 +216,26 @@ function backfillPillarApprovalFields(pillar: any) {
   pillar.versionHistory = []
 }
 
-/** Projects persisted before pillars became sequential won't have depIds on P1-P8, and fan-out agents
- *  (bench/pestel/marketSizing/competitor) never actually had depIds at all (a pre-existing bug — they were
- *  created with status:'locked' but no depIds, so recomputeWave1Locks treated their empty dep list as
- *  trivially satisfied and unlocked them on the very first recompute). Backfill depIds for both, and only
- *  re-lock an agent that's still untouched ('not_started', no prior chat) — never claw back access to one
- *  a reviewer already started or finished, since that would erase in-progress work under someone's feet.
- *
- *  Fan-out agents also used to run unordered/parallel (all four gated only on idiSynth) before they became
- *  a sequential chain like the pillars; migrate any untouched pestel/marketSizing/competitor off that old
- *  ['idiSynth'] dep onto the previous fan-out agent, same untouched-only safety rule. */
-function backfillWave1DepIds(pillars: Record<string, any>, externalAgents: any) {
-  PILLAR_IDS.forEach((id, i) => {
-    const p = pillars[id]
-    if (!p || p.depIds !== undefined) return
-    const depIds = i === 0 ? [] : [PILLAR_IDS[i - 1]]
-    p.depIds = depIds
-    if (depIds.length && p.status === 'not_started') p.status = 'locked'
-  })
-  FANOUT_AGENT_IDS.forEach((id, i) => {
-    const agent = externalAgents?.[id]
+/** Pillars used to run as a sequential chain (P2 locked on P1, etc.) and fan-out agents as a chain after
+ *  idiSynth. Both are now independent: pillars have no dependencies, and every fan-out agent depends only
+ *  on idiSynth (or nothing, when the reviewer skipped the IDI path). Migrate persisted agents onto that
+ *  shape. Dependencies are always rewritten, but status only moves for agents that are still untouched
+ *  (no chat, not approved) — never re-lock one a reviewer already started, which would erase in-progress
+ *  work under someone's feet. A 'locked' agent whose new dependencies are satisfied is released. */
+function backfillWave1DepIds(assessment: any) {
+  const idiEnabled = assessment.idiDocumentsAvailable !== false
+  const externalAgents = assessment.externalAgents
+  const retarget = (agent: any, depIds: string[]) => {
     if (!agent) return
-    const chainDep = i === 0 ? ['idiSynth'] : [FANOUT_AGENT_IDS[i - 1]]
     const untouched = !agent.chatHistory?.length && agent.approvedVersion === null
-    if (agent.depIds === undefined) {
-      agent.depIds = chainDep
-      if (chainDep.length && agent.status === 'not_started') agent.status = 'locked'
-      return
-    }
-    if (i > 0 && untouched && JSON.stringify(agent.depIds) !== JSON.stringify(chainDep)) {
-      agent.depIds = chainDep
-      if (agent.status === 'not_started') agent.status = 'locked'
-    }
-  })
+    agent.depIds = depIds
+    if (depIds.length === 0) { if (agent.status === 'locked') agent.status = 'not_started'; return }
+    const depsDone = depIds.every(id => externalAgents?.[id]?.approvedVersion !== null && externalAgents?.[id] !== undefined)
+    if (untouched && !depsDone && agent.status === 'not_started') agent.status = 'locked'
+    else if (depsDone && agent.status === 'locked') agent.status = 'not_started'
+  }
+  PILLAR_IDS.forEach(id => retarget(assessment.pillars?.[id], []))
+  FANOUT_AGENT_IDS.forEach(id => retarget(externalAgents?.[id], idiEnabled ? ['idiSynth'] : []))
 }
 
 /** Projects created before the Wave 1 approval pipeline shipped won't have externalAgents/swotAgent/
@@ -256,7 +255,24 @@ function backfillEntityAssessmentShape(assessment: any) {
     assessment.swotAgent.versionHistory = []
     assessment.swotAgent.approvedVersion = null
   }
-  if (assessment.pillars) backfillWave1DepIds(assessment.pillars, assessment.externalAgents)
+  if (assessment.pillars) backfillWave1DepIds(assessment)
+  backfillWave2(assessment)
+}
+
+/** Entities created before Wave 2 shipped have no assessment.wave2. Add it (and any individual agent that's
+ *  missing), re-derive every agent's depIds from the diagram table, and release agents whose upstream
+ *  approvals are already satisfied — e.g. an entity whose SWOT Part A was approved long ago. */
+function backfillWave2(assessment: any) {
+  if (!assessment.wave2) assessment.wave2 = createWave2State()
+  const wave2 = assessment.wave2
+  if (wave2.optionsEnabled === undefined) wave2.optionsEnabled = null
+  if (!wave2.agents) wave2.agents = {}
+  const enabled = wave2OptionsEnabled(assessment)
+  for (const id of WAVE2_ORDER) {
+    if (!wave2.agents[id]) wave2.agents[id] = createNarrativeAgent(id, wave2DepIds(id, true))
+    wave2.agents[id].depIds = wave2DepIds(id, enabled)
+  }
+  recomputeWave2Locks(assessment)
 }
 
 function backfillWave1Shape(project: any) {

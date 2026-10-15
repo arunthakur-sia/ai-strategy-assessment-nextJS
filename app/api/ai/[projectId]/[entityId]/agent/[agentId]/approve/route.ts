@@ -1,4 +1,4 @@
-// POST /api/ai/:projectId/:entityId/agent/:agentId/approve — approve a Wave 1 agent's output as it stands
+// POST /api/ai/:projectId/:entityId/agent/:agentId/approve — approve a Wave 1 or Wave 2 agent's output as it stands
 // right now. A human can approve as soon as the agent has replied at all — it doesn't have to have reached
 // a finalized, structured result first; approving mid-conversation freezes that conversation itself as this
 // agent's assessment (see ensureApprovableVersion). This snapshot is what getApprovedSummaryText() hands to
@@ -12,7 +12,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadProject, saveProject, computePillarFinalScore, PILLAR_IDS } from '@/lib/server/helpers'
 import { requireProjectAuth } from '@/lib/server/auth'
-import { ensureApprovableVersion, getWave1Agent, recomputeWave1Locks, resolveWave1Entity, WAVE1_AGENT_IDS } from '@/lib/server/wave1Engine'
+import { ensureApprovableVersion, resolveWave1Entity } from '@/lib/server/wave1Engine'
+import { ALL_AGENT_IDS, getAnyAgent, recomputeAllLocks } from '@/lib/server/wave2Engine'
 
 function isValidScore(n: any): n is number {
   return typeof n === 'number' && !isNaN(n) && n >= 1 && n <= 5
@@ -27,7 +28,7 @@ export async function POST(
 ) {
   const { projectId, entityId, agentId } = await params
   if (!await requireProjectAuth(request, projectId)) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (!WAVE1_AGENT_IDS.includes(agentId)) return NextResponse.json({ error: 'Unknown agent' }, { status: 400 })
+  if (!ALL_AGENT_IDS.includes(agentId)) return NextResponse.json({ error: 'Unknown agent' }, { status: 400 })
 
   try {
     const project = await loadProject(projectId)
@@ -35,7 +36,7 @@ export async function POST(
     const entity = resolveWave1Entity(project, entityId)
     if (!entity) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
 
-    const agent = getWave1Agent(entity, agentId)
+    const agent = getAnyAgent(entity, agentId)
     if (!agent.chatHistory?.length) {
       return NextResponse.json({ error: 'This agent has not said anything yet.' }, { status: 400 })
     }
@@ -56,7 +57,7 @@ export async function POST(
     agent.approvedBy = project.consultantName || 'Reviewer'
     agent.status = 'complete'
 
-    recomputeWave1Locks(entity)
+    recomputeAllLocks(entity)
     await saveProject(project)
 
     return NextResponse.json({ success: true, entityId, agentId, approvedVersion: agent.approvedVersion })

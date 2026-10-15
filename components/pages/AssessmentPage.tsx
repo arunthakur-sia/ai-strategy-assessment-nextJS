@@ -5,17 +5,19 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRouter } from 'next/navigation'
 import { useStore } from '@/store/useStore'
-import { projectsApi, wave1Api, entityDocumentsApi } from '@/lib/api'
+import { projectsApi, wave1Api, wave2Api, entityDocumentsApi } from '@/lib/api'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { SourceBadge } from '@/components/CitedText'
 import { SourcesPanel } from '@/components/SourcesPanel'
+import { ExportReportButton } from '@/components/ExportReportButton'
 import { MarkdownTable } from '@/components/MarkdownTable'
 import { copyRenderedElement } from '@/lib/copyRichContent'
-import { remarkWave1Citations, extractWave1Tokens } from '@/lib/remarkWave1Citations'
+import { remarkWave1Citations } from '@/lib/remarkWave1Citations'
 import {
   PILLAR_ORDER, FANOUT_ORDER, wave1Total, mainEntityAdapter, idiPathEnabled, wave1Sequence,
-  getAgentObj, agentLabel, isApproved, hasVersion, canUnlock, wave1ApprovedCount, statusMeta, defaultKickoffMessage,
+  getAgentObj, agentLabel, isApproved, buildCitationMaps, hasVersion, canUnlock, wave1ApprovedCount, statusMeta, defaultKickoffMessage,
 } from '@/lib/wave1Client'
+import { wave2Sequence, wave2OptionsEnabled, isWave2AgentId, WAVE2_OPTIONAL } from '@/lib/wave2Shared'
 
 function fmtScore(n: number | null | undefined): string {
   return n == null ? '—' : n.toFixed(1)
@@ -23,32 +25,33 @@ function fmtScore(n: number | null | undefined): string {
 
 const WAVES = [
   { key: 'diagnostic', label: 'Diagnostic', note: 'Internal + external analysis, feeding an entity-level SWOT.', available: true },
-  { key: 'formulation', label: 'Formulation', note: 'Direction, options and outcomes, gated by a shift agenda.', available: false },
+  { key: 'formulation', label: 'Formulation', note: 'Strategic direction, V/M/V and (optionally) strategic options, consolidated into SWOT Part B and a shift agenda.', available: true },
   { key: 'translation', label: 'Translation', note: 'Strategy map → KPIs → initiatives.', available: false },
   { key: 'execution', label: 'Execution', note: 'Alignment, operational plans, final plan documents.', available: false },
 ]
 
 // ─── compact agent row, reused for pillar / narrative / fanout / swot cards ──────────────────────────
-function AgentRow({ entity, id, onOpen, depLabels, gate, onQuickRun, running }: {
-  entity: any; id: string; onOpen: (id: string) => void; depLabels?: string[]; gate?: boolean
+function AgentRow({ entity, id, onOpen, depLabels, gate, optional, onQuickRun, running, projectId }: {
+  projectId?: string; entity: any; id: string; onOpen: (id: string) => void; depLabels?: string[]; gate?: boolean; optional?: boolean
   onQuickRun?: (id: string) => void; running?: boolean
 }) {
   const agent = getAgentObj(entity, id)
   const meta = statusMeta(agent)
   const locked = agent.status === 'locked'
+  const skipped = agent.status === 'skipped'
   const needsUpload = agent.uploadDep && !agent.uploadDep.done
-  const showRun = onQuickRun && !locked && !hasVersion(agent)
+  const showRun = onQuickRun && !locked && !skipped && !hasVersion(agent)
   const isPillar = PILLAR_ORDER.includes(id)
   const hasScore = isPillar && (agent.aiScore != null || agent.manualScore != null)
 
   return (
     <div
-      onClick={() => onOpen(id)}
+      onClick={() => { if (!skipped) onOpen(id) }}
       style={{
         display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px',
-        borderRadius: 'var(--radius)', background: locked ? 'rgba(69,85,105,0.03)' : 'var(--sia-white)',
-        border: `1px solid ${gate ? 'rgba(139,92,246,0.35)' : 'rgba(23,48,68,0.08)'}`,
-        cursor: 'pointer',
+        borderRadius: 'var(--radius)', background: locked || skipped ? 'rgba(69,85,105,0.03)' : 'var(--sia-white)',
+        border: `1px ${optional ? 'dashed' : 'solid'} ${gate ? 'rgba(139,92,246,0.35)' : 'rgba(23,48,68,0.08)'}`,
+        cursor: skipped ? 'default' : 'pointer', opacity: skipped ? 0.6 : 1,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
@@ -65,6 +68,7 @@ function AgentRow({ entity, id, onOpen, depLabels, gate, onQuickRun, running }: 
               {agentLabel(entity, id)}
             </span>
             {gate && <span style={{ fontSize: '10px', fontWeight: 600, color: '#8B5CF6', background: 'rgba(139,92,246,0.1)', padding: '2px 7px', borderRadius: '999px', flexShrink: 0 }}>GATE</span>}
+            {optional && <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--sia-medium-gray)', background: 'rgba(69,85,105,0.08)', padding: '2px 7px', borderRadius: '999px', flexShrink: 0 }}>OPTIONAL</span>}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -78,6 +82,11 @@ function AgentRow({ entity, id, onOpen, depLabels, gate, onQuickRun, running }: 
             </button>
           ) : (
             <>
+              {projectId && agent.approvedVersion !== null && agent.chatHistory?.length > 0 && (
+                <span onClick={e => e.stopPropagation()}>
+                  <ExportReportButton compact projectId={projectId} entityId={entity.id} agentId={id} title={agentLabel(entity, id)} chatHistory={agent.chatHistory} />
+                </span>
+              )}
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: meta.color }} />
               <span style={{ fontSize: '11.5px', color: meta.color, fontWeight: 500 }}>{meta.label}</span>
             </>
@@ -99,6 +108,46 @@ function AgentRow({ entity, id, onOpen, depLabels, gate, onQuickRun, running }: 
   )
 }
 
+// Animated "agent is working" bubble: rotating status phrases, a shimmering progress bar and an elapsed
+// timer anchored to the server-side start time, so it stays accurate when the drawer is closed and reopened.
+const WORKING_PHRASES = [
+  'Reading your documents',
+  'Retrieving relevant evidence',
+  'Cross-referencing sources',
+  'Analysing findings',
+  'Drafting the response',
+  'Checking citations',
+  'Polishing the output',
+]
+function AgentWorkingIndicator({ startedAt }: { startedAt?: string }) {
+  const [now, setNow] = useState(() => Date.now())
+  const [mountedAt] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const parsed = startedAt ? new Date(startedAt).getTime() : NaN
+  const start = Number.isFinite(parsed) ? parsed : mountedAt
+  const elapsed = Math.max(0, Math.floor((now - start) / 1000))
+  const phrase = WORKING_PHRASES[Math.min(Math.floor(elapsed / 8), WORKING_PHRASES.length - 1)]
+  const mm = Math.floor(elapsed / 60), ss = String(elapsed % 60).padStart(2, '0')
+  return (
+    <div className="fade-in" style={{ maxWidth: '85%', minWidth: '220px', alignSelf: 'flex-start', background: 'var(--sia-light-gray)', borderRadius: '10px', padding: '9px 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--sia-medium-gray)', marginBottom: '6px' }}>
+        <span>Agent</span><span>{mm}:{ss}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px' }}>
+        <Loader2 size={13} className="spinner" style={{ color: 'var(--sia-medium-teal)', flexShrink: 0 }} />
+        <span key={phrase} className="fade-in">{phrase}…</span>
+      </div>
+      <div className="working-bar" />
+      <div style={{ fontSize: '10.5px', color: 'var(--sia-medium-gray)', marginTop: '6px' }}>
+        Runs in the background — you can close this and come back.
+      </div>
+    </div>
+  )
+}
+
 // ─── slide-in drawer: chat thread + send/approve — no run button, agents only act on a human message ──
 function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRunning }: {
   project: any; entity: any; agentId: string; onChanged: () => Promise<void>; onApproved: (agentId: string) => Promise<void>
@@ -113,7 +162,21 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
   const [isApproving, setIsApproving] = useState(false)
   const [isUnlocking, setIsUnlocking] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
-  const busy = isSending || isApproving || isUnlocking || isResetting || quickRunning
+  // A run started earlier (tab closed / reloaded / other device) keeps going on the server and persists its
+  // own result. While the agent still reads 'in_progress' and this tab isn't the one streaming it, poll.
+  const pending = (agent as any).pendingMessage as { content: string; at: string } | null | undefined
+  const runningOnServer = agent.status === 'in_progress' && !isSending && !quickRunning
+  const busy = isSending || isApproving || isUnlocking || isResetting || quickRunning || runningOnServer
+  // Resync once on open: the store copy may predate a run that was started before the drawer was closed.
+  useEffect(() => { onChanged().catch(() => {}) }, [agentId])
+  useEffect(() => {
+    if (!runningOnServer) return
+    const startedAt = pending?.at ? new Date(pending.at).getTime() : Date.now()
+    // Server functions are capped at 720s; past that the run is dead, so stop polling.
+    if (Date.now() - startedAt > 13 * 60 * 1000) return
+    const t = setInterval(() => { onChanged().catch(() => {}) }, 3000)
+    return () => clearInterval(t)
+  }, [runningOnServer, pending?.at])
 
   // Reviewer score — editable any time, independent of approval, saved on blur via its own endpoint.
   const [manualScoreInput, setManualScoreInput] = useState(agent.manualScore != null ? String(agent.manualScore) : '')
@@ -179,49 +242,8 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
   const approved = agent.approvedVersion !== null
   const unlockable = canUnlock(entity, agentId)
 
-  const conversationSources = useMemo(() => {
-    const merged: Record<string, any> = {}
-    for (const m of chatHistory) if (m.newSources) Object.assign(merged, m.newSources)
-    return merged
-  }, [chatHistory])
-
-  // Each raw citation token (e.g. "1-47") is a "<docIndex>-<sourceKey>" pair — the source itself is keyed
-  // in conversationSources by just the part after the dash ("47"), not the whole token. Every unique token
-  // seen across the whole conversation gets its own sequential display number (1, 2, 3, ...), assigned in
-  // order of first appearance, and the same token always resolves to the same number and the same single
-  // source-panel entry. Sources that were fetched by the agent but never inline-cited (e.g. "explored"
-  // docs) get appended after, in whatever order the server returned them, so they still show up in the
-  // panel — but only if no cited token already covers that same underlying source key, otherwise every
-  // cited source would double up as a second, uncited-looking entry with a much higher display number.
-  const { tokenToNum, remappedSources } = useMemo(() => {
-    const sourceKeyOf = (token: string) => {
-      const dash = token.lastIndexOf('-')
-      return dash === -1 ? token : token.slice(dash + 1)
-    }
-    const map: Record<string, number> = {}
-    const usedSourceKeys = new Set<string>()
-    let next = 1
-    for (const m of chatHistory) {
-      if (m.role !== 'agent' || !m.content) continue
-      for (const token of extractWave1Tokens(m.content)) {
-        if (!(token in map)) {
-          map[token] = next++
-          usedSourceKeys.add(sourceKeyOf(token))
-        }
-      }
-    }
-    for (const key of Object.keys(conversationSources)) {
-      if (usedSourceKeys.has(key) || key in map) continue
-      map[key] = next++
-      usedSourceKeys.add(key)
-    }
-    const sources: Record<string, any> = {}
-    for (const [token, num] of Object.entries(map)) {
-      const src = conversationSources[token] ?? conversationSources[sourceKeyOf(token)]
-      if (src) sources[String(num)] = src
-    }
-    return { tokenToNum: map, remappedSources: sources }
-  }, [chatHistory, conversationSources])
+  // Citation tokens -> display numbers + resolved sources for the whole conversation (see buildCitationMaps).
+  const { tokenToNum, remappedSources } = useMemo(() => buildCitationMaps(chatHistory), [chatHistory])
   const sourceCount = Object.keys(remappedSources).length
 
   function openSource(num: number) {
@@ -247,9 +269,11 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
       setIsSending(false)
       await onChanged()
     } catch (e: any) {
-      alert('Message failed: ' + (e.message || 'Unknown error'))
       setPendingMessage(null)
       setIsSending(false)
+      // A dropped connection doesn't cancel the run — it continues server-side. Resync and let polling pick it up.
+      if (e instanceof TypeError || /^HTTP 5\d\d$|network|fetch/i.test(e.message || '')) { await onChanged().catch(() => {}); return }
+      alert('Message failed: ' + (e.message || 'Unknown error'))
     }
   }
 
@@ -326,6 +350,11 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
           <span style={{ color: meta.color, fontWeight: 600 }}>{meta.label}</span>
           {agent.approvedAt && ` · approved by ${agent.approvedBy || 'reviewer'}`}
         </SheetDescription>
+        {approved && chatHistory.length > 0 && (
+          <div style={{ marginTop: '8px' }}>
+            <ExportReportButton projectId={project.id} entityId={entity.id} agentId={agentId} title={agentLabel(entity, agentId)} chatHistory={chatHistory} />
+          </div>
+        )}
         {isPillar && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '18px', marginTop: '10px' }}>
             <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)' }}>
@@ -484,25 +513,19 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
                   )}
                 </div>
               ))}
+              {!pendingMessage && runningOnServer && pending?.content && (
+                <div className="fade-in" style={{ maxWidth: '85%', alignSelf: 'flex-end', background: 'rgba(0,222,204,0.1)', borderRadius: '10px', padding: '9px 12px' }}>
+                  <div style={{ fontSize: '10px', color: 'var(--sia-medium-gray)', marginBottom: '3px' }}>You</div>
+                  <div style={{ fontSize: '12.5px', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{pending.content}</div>
+                </div>
+              )}
               {pendingMessage && (
                 <div className="fade-in" style={{ maxWidth: '85%', alignSelf: 'flex-end', background: 'rgba(0,222,204,0.1)', borderRadius: '10px', padding: '9px 12px' }}>
                   <div style={{ fontSize: '10px', color: 'var(--sia-medium-gray)', marginBottom: '3px' }}>You</div>
                   <div style={{ fontSize: '12.5px', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{pendingMessage}</div>
                 </div>
               )}
-              {isSending && (
-                <div className="fade-in" style={{ maxWidth: '85%', alignSelf: 'flex-start', background: 'var(--sia-light-gray)', borderRadius: '10px', padding: '9px 12px' }}>
-                  <div style={{ fontSize: '10px', color: 'var(--sia-medium-gray)', marginBottom: '3px' }}>Agent</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '14px' }}>
-                    {[0, 1, 2].map(i => (
-                      <span key={i} style={{
-                        width: '5px', height: '5px', borderRadius: '50%', background: 'var(--sia-medium-gray)',
-                        animation: 'pulse 1s ease-in-out infinite', animationDelay: `${i * 0.15}s`,
-                      }} />
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(isSending || runningOnServer) && <AgentWorkingIndicator startedAt={pending?.at} />}
               <div ref={chatEndRef} />
             </>
           )}
@@ -515,8 +538,10 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
             {approved ? (
               <div style={{ fontSize: '12px', color: 'var(--sia-medium-gray)', background: 'rgba(69,85,105,0.05)', padding: '10px 12px', borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div>
-                  This pillar's conversation is approved and saved as its assessment — no further messages can be sent to this agent. Move on to the next pillar.
-                  {!unlockable && ' The SWOT agent has already run off this output, so it can no longer be unlocked.'}
+                  This {isPillar ? "pillar's" : "agent's"} conversation is approved and saved as its output — no further messages can be sent to this agent. Move on to the next step.
+                  {!unlockable && (isWave2AgentId(agentId) || agentId === 'swot'
+                    ? ' A later step has already run off this output, so it can no longer be unlocked.'
+                    : ' The SWOT agent has already run off this output, so it can no longer be unlocked.')}
                 </div>
                 {unlockable && (
                   <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={unlock}>
@@ -708,16 +733,15 @@ function DiagnosticWaveContent({ project, entity, onOpen, onChanged, onQuickRun,
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandInternal(v => !v)}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sia-navy)' }}>Internal analysis</div>
-            <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)' }}>{pillarDoneCt} of 8 pillars approved · sequential — each unlocks after the previous one is approved</div>
+            <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)' }}>{pillarDoneCt} of 8 pillars approved · run in any order</div>
           </div>
           {expandInternal ? <ChevronDown size={16} color="var(--sia-medium-gray)" /> : <ChevronRight size={16} color="var(--sia-medium-gray)" />}
         </div>
         {expandInternal && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', marginTop: '14px' }}>
-            {PILLAR_ORDER.map((id, i) => (
-              <AgentRow
+            {PILLAR_ORDER.map(id => (
+              <AgentRow projectId={project.id}
                 key={id} entity={entity} id={id} onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has(id)}
-                depLabels={i > 0 ? [`${agentLabel(entity, PILLAR_ORDER[i - 1])} (approved)`] : undefined}
               />
             ))}
           </div>
@@ -730,10 +754,10 @@ function DiagnosticWaveContent({ project, entity, onOpen, onChanged, onQuickRun,
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sia-navy)' }}>External analysis</div>
             <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)' }}>
               {idiChoice === null
-                ? `${fanoutDoneCt} of 4 approved · sequential — each unlocks after the previous one is approved`
+                ? `${fanoutDoneCt} of 4 approved · all unlock once IDI is approved or skipped`
                 : idiEnabled
-                ? `IDI Guide → human-run interviews → IDI Synth, then ${fanoutDoneCt} of 4 approved · sequential`
-                : `Skipping IDI (no interview documents) — ${fanoutDoneCt} of 4 approved · sequential`}
+                ? `IDI Guide → human-run interviews → IDI Synth, then ${fanoutDoneCt} of 4 approved · run in any order`
+                : `Skipping IDI (no interview documents) — ${fanoutDoneCt} of 4 approved · run in any order`}
             </div>
           </div>
           {expandExternal ? <ChevronDown size={16} color="var(--sia-medium-gray)" /> : <ChevronRight size={16} color="var(--sia-medium-gray)" />}
@@ -753,15 +777,15 @@ function DiagnosticWaveContent({ project, entity, onOpen, onChanged, onQuickRun,
                 )}
                 {idiEnabled && (
                   <>
-                    <AgentRow entity={entity} id="idiGuide" onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has('idiGuide')} />
-                    <AgentRow entity={entity} id="idiSynth" onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has('idiSynth')} depLabels={['IDI Guide (approved)', idiSynth.uploadDep?.done ? 'interview transcripts (uploaded)' : 'interview transcripts (not uploaded)']} />
+                    <AgentRow projectId={project.id} entity={entity} id="idiGuide" onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has('idiGuide')} />
+                    <AgentRow projectId={project.id} entity={entity} id="idiSynth" onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has('idiSynth')} depLabels={['IDI Guide (approved)', idiSynth.uploadDep?.done ? 'interview transcripts (uploaded)' : 'interview transcripts (not uploaded)']} />
                   </>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', paddingLeft: idiEnabled ? '18px' : '0' }}>
-                  {FANOUT_ORDER.map((id, i) => (
-                    <AgentRow
+                  {FANOUT_ORDER.map(id => (
+                    <AgentRow projectId={project.id}
                       key={id} entity={entity} id={id} onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has(id)}
-                      depLabels={i > 0 ? [`${agentLabel(entity, FANOUT_ORDER[i - 1])} (approved)`] : (idiEnabled ? ['IDI Synth (approved)'] : undefined)}
+                      depLabels={idiEnabled ? ['IDI Synth (approved)'] : undefined}
                     />
                   ))}
                 </div>
@@ -772,10 +796,146 @@ function DiagnosticWaveContent({ project, entity, onOpen, onChanged, onQuickRun,
       </div>
 
       <div className="card fade-in" style={{ padding: '16px 18px' }}>
-        <AgentRow
+        <AgentRow projectId={project.id}
           entity={entity} id="swot" onOpen={onOpen} gate onQuickRun={onQuickRun} running={runningIds.has('swot')}
           depLabels={[...PILLAR_ORDER, ...FANOUT_ORDER].filter(id => !isApproved(entity, id)).map(id => agentLabel(entity, id))}
         />
+      </div>
+    </>
+  )
+}
+
+// ─── Wave 2 (Formulation) ───────────────────────────────────────────────────────────────────────────────
+// Mirrors the Wave 2 functional flow diagram: 1. Strategic Direction → 2. V/M/V → 3. Strategic Options
+// (optional: Design → Evaluation & Selection) → 4. SWOT Part B → 5. Shift Agenda. The edges themselves live in
+// lib/wave2Shared.ts; the rows here just show which of an agent's upstream inputs are still unapproved.
+function wave2WaitingOn(entity: any, id: string): string[] {
+  return (getAgentObj(entity, id).depIds || [])
+    .filter((d: string) => !isApproved(entity, d))
+    .map((d: string) => d === 'swot' ? 'SWOT Part A (Wave 1)' : agentLabel(entity, d))
+}
+
+function OptionsChoicePrompt({ project, entity, onChanged }: { project: any; entity: any; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const choice: boolean | null = entity.assessment.wave2.optionsEnabled
+  const enabled = wave2OptionsEnabled(entity.assessment)
+  const agents = entity.assessment.wave2.agents
+  // Same lock as the server's setWave2OptionsEnabled: once the options step or anything after it has begun,
+  // the choice is final.
+  const locked = [...WAVE2_OPTIONAL, 'swotB', 'shiftAgenda'].some(id => agents[id].chatHistory?.length || agents[id].versionHistory?.length)
+
+  async function choose(value: boolean) {
+    setBusy(true)
+    try {
+      await wave2Api.setOptionsEnabled(project.id, entity.id, value)
+      await onChanged()
+    } catch (e: any) { alert('Failed to save: ' + (e.response?.data?.error || e.message)) }
+    setBusy(false)
+  }
+
+  if (choice === null) {
+    return (
+      <div style={{ padding: '14px', borderRadius: 'var(--radius)', background: 'rgba(0,222,204,0.05)', border: '1px solid rgba(0,222,204,0.25)' }}>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--sia-navy)', marginBottom: '4px' }}>
+          Do you want to run the optional strategic options step?
+        </div>
+        <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)', marginBottom: '10px' }}>
+          Yes runs Strategic Options Design → Strategic Options Evaluation & Selection before SWOT Part B. No skips
+          both — SWOT Part B and the Shift Agenda run straight off Strategic Direction, V/M/V and SWOT Part A.
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => choose(true)}>
+            {busy && <Loader2 size={11} className="spinner" />} Yes, include it
+          </button>
+          <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => choose(false)}>
+            {busy && <Loader2 size={11} className="spinner" />} No, skip it
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>
+      Strategic options step: <strong>{enabled ? 'included' : 'skipped'}</strong>
+      {!locked && (
+        <>
+          {' · '}
+          <button
+            onClick={() => choose(!enabled)} disabled={busy}
+            style={{ background: 'none', border: 'none', padding: 0, color: 'var(--sia-teal)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            {busy ? 'saving…' : 'change'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function FormulationWaveContent({ project, entity, onOpen, onChanged, onQuickRun, runningIds }: {
+  project: any; entity: any; onOpen: (id: string) => void; onChanged: () => Promise<void>
+  onQuickRun: (id: string) => void; runningIds: Set<string>
+}) {
+  const enabled = wave2OptionsEnabled(entity.assessment)
+  const swotApproved = isApproved(entity, 'swot')
+  const row = (id: string, extra?: { gate?: boolean; optional?: boolean }) => (
+    <AgentRow projectId={project.id}
+      key={id} entity={entity} id={id} onOpen={onOpen} onQuickRun={onQuickRun} running={runningIds.has(id)}
+      depLabels={wave2WaitingOn(entity, id)} {...extra}
+    />
+  )
+
+  return (
+    <>
+      {!swotApproved && (
+        <div style={{ fontSize: '12.5px', color: 'var(--sia-cool-black)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', padding: '10px 12px', borderRadius: 'var(--radius)', marginBottom: '16px' }}>
+          Wave 2 starts once SWOT Part A (the Diagnostic wave's entity SWOT) is approved — its conversation is passed to every
+          Formulation agent. Approve it in the Diagnostic tab first.
+        </div>
+      )}
+
+      <div className="card fade-in" style={{ padding: '16px 18px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sia-navy)' }}>Direction</div>
+        <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)', marginBottom: '14px' }}>
+          Strategic Direction (SWOT Part A + company documents) feeds V/M/V, which also draws on SWOT Part A.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {row('direction')}
+          {row('vmv')}
+        </div>
+      </div>
+
+      <div className="card fade-in" style={{ padding: '16px 18px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sia-navy)' }}>Strategic options <span style={{ fontWeight: 500, color: 'var(--sia-medium-gray)' }}>(optional)</span></div>
+        <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)', marginBottom: '14px' }}>
+          Options Design proposes the options; Options Evaluation & Selection assesses them against SWOT Part A, Direction, V/M/V and the design.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <OptionsChoicePrompt project={project} entity={entity} onChanged={onChanged} />
+          {entity.assessment.wave2.optionsEnabled !== null && (
+            <>
+              {row('optionsDesign', { optional: true })}
+              {row('optionsEval', { optional: true })}
+              {!enabled && (
+                <div style={{ fontSize: '11px', color: 'var(--sia-medium-gray)' }}>
+                  Skipped — SWOT Part B and the Shift Agenda don't wait on these.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card fade-in" style={{ padding: '16px 18px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--sia-navy)' }}>Consolidation</div>
+        <div style={{ fontSize: '11.5px', color: 'var(--sia-medium-gray)', marginBottom: '14px' }}>
+          SWOT Part B re-assesses the position given the direction{enabled ? ' and selected options' : ''}; the Shift Agenda closes the wave.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {row('swotB')}
+          {row('shiftAgenda', { gate: true })}
+        </div>
       </div>
     </>
   )
@@ -801,9 +961,8 @@ export default function AssessmentPage() {
     setProject(updated.data)
   }
 
-  // After approving an agent, jump straight to the next one still awaiting review (per WAVE1_SEQUENCE)
-  // instead of leaving the reviewer to close the drawer and click into it themselves. If everything
-  // remaining is already approved (or this was the last step), just close the drawer.
+  // After approving an agent, jump to the next one in display order that's unapproved and not locked
+  // (agents can be run in any order, so a later one may still be gated). If none qualifies, close the drawer.
   async function advanceAfterApprove(approvedAgentId: string) {
     const updated = await projectsApi.get(projectId)
     setProject(updated.data)
@@ -811,9 +970,9 @@ export default function AssessmentPage() {
     const freshEntity = activeEntityId
       ? (freshEntities.find((e: any) => e.id === activeEntityId) ?? mainEntityAdapter(updated.data))
       : mainEntityAdapter(updated.data)
-    const sequence = wave1Sequence(freshEntity)
+    const sequence = isWave2AgentId(approvedAgentId) ? wave2Sequence(freshEntity.assessment) : wave1Sequence(freshEntity)
     const idx = sequence.indexOf(approvedAgentId)
-    const next = sequence.slice(idx + 1).find(id => !isApproved(freshEntity, id))
+    const next = sequence.slice(idx + 1).find(id => !isApproved(freshEntity, id) && !['locked', 'skipped'].includes(getAgentObj(freshEntity, id).status))
     setOpenAgentId(next ?? null)
   }
 
@@ -860,15 +1019,19 @@ export default function AssessmentPage() {
               {w.available ? '' : 'Not yet available · '}{w.label}
             </div>
             <div style={{ fontSize: '13.5px', fontWeight: 600, color: activeWave === w.key ? 'var(--sia-navy)' : 'var(--sia-cool-black)' }}>
-              {w.key === 'diagnostic' ? `${wave1ApprovedCount(entity)}/${wave1Total(entity)} approved` : '—'}
+              {w.key === 'diagnostic' ? `${wave1ApprovedCount(entity)}/${wave1Total(entity)} approved`
+                : w.key === 'formulation' ? `${wave2Sequence(entity.assessment).filter(id => isApproved(entity, id)).length}/${wave2Sequence(entity.assessment).length} approved`
+                : '—'}
             </div>
           </div>
         ))}
       </div>
       <p style={{ fontSize: '12.5px', color: 'var(--sia-medium-gray)', margin: '0 0 20px' }}>{wave.note}</p>
 
-      {wave.available ? (
+      {activeWave === 'diagnostic' ? (
         <DiagnosticWaveContent project={project} entity={entity} onOpen={setOpenAgentId} onChanged={refresh} onQuickRun={quickRun} runningIds={runningIds} />
+      ) : activeWave === 'formulation' ? (
+        <FormulationWaveContent project={project} entity={entity} onOpen={setOpenAgentId} onChanged={refresh} onQuickRun={quickRun} runningIds={runningIds} />
       ) : (
         <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--sia-medium-gray)' }}>
           <p style={{ fontSize: '13px', margin: 0 }}>

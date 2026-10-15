@@ -1,6 +1,7 @@
 import 'server-only'
 import { callSiaGPT } from './siagpt'
 import { config } from './config'
+import { wave2DownstreamStarted } from '../wave2Shared'
 import {
   parseJsonWithNarrative, applyEntityPillarResult, applyPillarLikeResult, computePillarFinalScore,
   PILLAR_IDS, FANOUT_AGENT_IDS, FANOUT_NAMES,
@@ -75,11 +76,10 @@ function idiPathEnabled(entity: any): boolean {
 
 /**
  * Records the reviewer's answer to "do you have documents to seed an IDI interview guide from?" and
- * re-wires bench's (the fan-out chain's entry point) dependency accordingly: true (or leaving it
- * unanswered) gates it on the approved IDI synthesis, exactly as before; false drops that dependency so
- * bench runs straight off the entity's own document collection, and idiGuide/idiSynth are skipped
- * entirely. pestel/marketSizing/competitor are unaffected — they always run in sequence after bench,
- * each locked until the previous fan-out agent is approved (mirrors the pillar chain). Blocked once
+ * re-wires every fan-out agent's (bench/pestel/marketSizing/competitor) dependency accordingly: true (or
+ * leaving it unanswered) gates all four on the approved IDI synthesis; false drops that dependency so they
+ * run straight off the entity's own document collection, and idiGuide/idiSynth are skipped entirely.
+ * IDI is the only gate on external analysis — the four agents are independent of each other. Blocked once
  * anything downstream of this choice has actually started, since switching after the fact would leave a
  * run built on the other path's assumptions.
  */
@@ -91,7 +91,12 @@ export function setIdiDocumentsAvailable(entity: any, value: boolean) {
     || FANOUT_AGENT_IDS.some(id => entity.assessment.externalAgents[id].chatHistory?.length)
   if (started) throw new Error('External analysis has already started — this choice can no longer be changed.')
   entity.assessment.idiDocumentsAvailable = value
-  entity.assessment.externalAgents.bench.depIds = value ? ['idiSynth'] : []
+  for (const id of FANOUT_AGENT_IDS) {
+    const agent = entity.assessment.externalAgents[id]
+    agent.depIds = value ? ['idiSynth'] : []
+    // Re-lock when switching back onto the IDI path (nothing has started, so this can't strand any work).
+    if (value && agent.status === 'not_started') agent.status = 'locked'
+  }
   recomputeWave1Locks(entity)
 }
 
@@ -111,7 +116,7 @@ export function recomputeWave1Locks(entity: any) {
   }
 }
 
-function buildTranscriptText(chatHistory: any[]): string {
+export function buildTranscriptText(chatHistory: any[]): string {
   return (chatHistory || [])
     .map((m: any) => `${m.role === 'user' ? 'Reviewer' : 'Agent'}: ${m.content}`)
     .join('\n\n')
@@ -136,8 +141,8 @@ export function ensureApprovableVersion(agent: any): number {
  * Reverses approve(): clears approval so the human can send this agent more messages and re-approve a
  * revised version. Blocked once the SWOT agent has actually run (produced a version) — SWOT already
  * consolidated this agent's approved output by then, so silently changing it underneath would leave the
- * consolidated SWOT stale. The SWOT agent itself has no such downstream in Wave 1, so it can always be
- * unlocked once approved.
+ * consolidated SWOT stale. The SWOT agent itself has no downstream within Wave 1 — but Wave 2 consumes it
+ * (as SWOT Part A), so it's blocked once any Wave 2 agent has started.
  */
 export function unlockWave1Agent(entity: any, agentId: string) {
   const agent = getWave1Agent(entity, agentId)
@@ -145,6 +150,11 @@ export function unlockWave1Agent(entity: any, agentId: string) {
   const swotAgent = getWave1Agent(entity, 'swot')
   if (agentId !== 'swot' && swotAgent.versionHistory?.length) {
     throw new Error('This agent can no longer be unlocked — the SWOT agent has already run using its approved output.')
+  }
+  // SWOT Part A also feeds Wave 2 (Formulation) — once any of those agents has started on its approved
+  // output, unlocking it would leave them stale.
+  if (agentId === 'swot' && wave2DownstreamStarted(entity.assessment, 'swot')) {
+    throw new Error('SWOT Part A can no longer be unlocked — Wave 2 has already started using its approved output.')
   }
   agent.approvedVersion = null
   agent.approvedAt = null

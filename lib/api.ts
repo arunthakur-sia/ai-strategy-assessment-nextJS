@@ -213,6 +213,20 @@ export const wave1Api = {
   setManualScore: (projectId: string, entityId: string, agentId: string, manualScore: number | null) =>
     api.patch(`/ai/${projectId}/${entityId}/agent/${agentId}/score`, { manualScore }),
 
+  // Approved agents only: LLM-written markdown report from the whole conversation (cached server-side).
+  generateReport: (projectId: string, entityId: string, agentId: string, payload: {
+    title: string; tokenToNum: Record<string, number>; sources: any[]; force?: boolean
+  }) =>
+    api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/report`, payload, { timeout: 800_000 })
+      .then(r => r.data as { markdown: string; title: string; entityName: string; generatedAt: string; cached: boolean }),
+
   setIdiDocumentsAvailable: (projectId: string, entityId: string, hasDocuments: boolean) =>
     api.post(`/ai/${projectId}/${entityId}/idi-choice`, { hasDocuments }),
+}
+
+// Wave 2 (Formulation) agents share wave1Api's chat/approve/unlock/reset endpoints (the server dispatches on
+// agentId) — only the optional-step switch is Wave 2 specific.
+export const wave2Api = {
+  setOptionsEnabled: (projectId: string, entityId: string, enabled: boolean) =>
+    api.post(`/ai/${projectId}/${entityId}/options-choice`, { enabled }),
 }
