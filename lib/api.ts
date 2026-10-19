@@ -206,6 +206,9 @@ export const wave1Api = {
   unlockAgent: (projectId: string, entityId: string, agentId: string) =>
     api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/unlock`, {}),
 
+  stopAgent: (projectId: string, entityId: string, agentId: string) =>
+    api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/stop`, {}),
+
   resetAgent: (projectId: string, entityId: string, agentId: string) =>
     api.post(`/ai/${projectId}/${entityId}/agent/${agentId}/reset`, {}),
 

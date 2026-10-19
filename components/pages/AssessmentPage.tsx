@@ -1,6 +1,6 @@
 'use client'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, ChevronLeft, Loader2, Lock, Unlock, Upload, CheckCircle2, Send, Play, Building2, BookOpen, RotateCcw, Copy, Check } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronLeft, Loader2, Lock, Unlock, Upload, CheckCircle2, Send, Play, Building2, BookOpen, RotateCcw, Copy, Check, Square } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRouter } from 'next/navigation'
@@ -75,10 +75,10 @@ function AgentRow({ entity, id, onOpen, depLabels, gate, optional, onQuickRun, r
           {showRun ? (
             <button
               className="btn btn-ghost btn-sm" style={{ padding: '3px 8px', fontSize: '11px' }}
-              disabled={running}
+              disabled={running || agent.status === 'in_progress'}
               onClick={e => { e.stopPropagation(); onQuickRun!(id) }}
             >
-              {running ? <Loader2 size={11} className="spinner" /> : <Play size={11} />} Run
+              {running || agent.status === 'in_progress' ? <Loader2 size={11} className="spinner" /> : <Play size={11} />} Run
             </button>
           ) : (
             <>
@@ -119,7 +119,7 @@ const WORKING_PHRASES = [
   'Checking citations',
   'Polishing the output',
 ]
-function AgentWorkingIndicator({ startedAt }: { startedAt?: string }) {
+function AgentWorkingIndicator({ startedAt, onStop, stopping }: { startedAt?: string; onStop?: () => void; stopping?: boolean }) {
   const [now, setNow] = useState(() => Date.now())
   const [mountedAt] = useState(() => Date.now())
   useEffect(() => {
@@ -144,14 +144,19 @@ function AgentWorkingIndicator({ startedAt }: { startedAt?: string }) {
       <div style={{ fontSize: '10.5px', color: 'var(--sia-medium-gray)', marginTop: '6px' }}>
         Runs in the background — you can close this and come back.
       </div>
+      {onStop && (
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: '8px', padding: '3px 10px', fontSize: '11px' }} disabled={stopping} onClick={onStop}>
+          {stopping ? <Loader2 size={11} className="spinner" /> : <Square size={11} />} Stop
+        </button>
+      )}
     </div>
   )
 }
 
 // ─── slide-in drawer: chat thread + send/approve — no run button, agents only act on a human message ──
-function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRunning }: {
+function AgentDrawer({ project, entity, agentId, onChanged, onApproved, onStopped, quickRunning }: {
   project: any; entity: any; agentId: string; onChanged: () => Promise<void>; onApproved: (agentId: string) => Promise<void>
-  quickRunning?: boolean
+  onStopped: (agentId: string) => void; quickRunning?: boolean
 }) {
   const agent = getAgentObj(entity, agentId)
   const meta = statusMeta(agent)
@@ -162,6 +167,7 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
   const [isApproving, setIsApproving] = useState(false)
   const [isUnlocking, setIsUnlocking] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [isStopping, setIsStopping] = useState(false)
   // A run started earlier (tab closed / reloaded / other device) keeps going on the server and persists its
   // own result. While the agent still reads 'in_progress' and this tab isn't the one streaming it, poll.
   const pending = (agent as any).pendingMessage as { content: string; at: string } | null | undefined
@@ -316,6 +322,19 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
       await onChanged()
     } catch (e: any) { alert('Unlock failed: ' + (e.response?.data?.error || e.message)) }
     setIsUnlocking(false)
+  }
+
+  // Abandons the run: the server clears the in_progress marker and discards the result if it ever arrives.
+  async function stop() {
+    setIsStopping(true)
+    try {
+      await wave1Api.stopAgent(project.id, entity.id, agentId)
+      setPendingMessage(null)
+      setIsSending(false)
+      onStopped(agentId)
+      await onChanged()
+    } catch (e: any) { alert('Stop failed: ' + (e.response?.data?.error || e.message)) }
+    setIsStopping(false)
   }
 
   async function restart() {
@@ -525,7 +544,7 @@ function AgentDrawer({ project, entity, agentId, onChanged, onApproved, quickRun
                   <div style={{ fontSize: '12.5px', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{pendingMessage}</div>
                 </div>
               )}
-              {(isSending || runningOnServer) && <AgentWorkingIndicator startedAt={pending?.at} />}
+              {(isSending || runningOnServer || quickRunning) && <AgentWorkingIndicator startedAt={pending?.at} onStop={stop} stopping={isStopping} />}
               <div ref={chatEndRef} />
             </>
           )}
@@ -948,6 +967,32 @@ export default function AssessmentPage() {
   const [openAgentId, setOpenAgentId] = useState<string | null>(null)
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set())
 
+  // Runs live on the server and outlive this page (tab closed, navigated away, several agents at once), so
+  // the stored project is the source of truth — not whichever SSE stream this page happens to hold open.
+  // Resync on mount, and keep polling while any agent of this entity still reads 'in_progress'.
+  const projectIdForSync: string | undefined = project?.id
+  const syncEntity = project
+    ? (activeEntityId ? ((project.entities || []).find((e: any) => e.id === activeEntityId) ?? mainEntityAdapter(project)) : mainEntityAdapter(project))
+    : null
+  const runStartTimes: number[] = []
+  if (syncEntity) {
+    for (const id of [...wave1Sequence(syncEntity), ...wave2Sequence(syncEntity.assessment)]) {
+      const a = getAgentObj(syncEntity, id)
+      if (a?.status === 'in_progress') runStartTimes.push(a.pendingMessage?.at ? new Date(a.pendingMessage.at).getTime() : Date.now())
+    }
+  }
+  // Server functions are capped at 720s; a run older than that is dead, so don't poll for it forever.
+  const anyRunning = runStartTimes.some(t => Date.now() - t < 13 * 60 * 1000)
+  useEffect(() => {
+    if (!projectIdForSync) return
+    projectsApi.get(projectIdForSync).then(r => setProject(r.data)).catch(() => {})
+  }, [projectIdForSync])
+  useEffect(() => {
+    if (!projectIdForSync || !anyRunning) return
+    const t = setInterval(() => { projectsApi.get(projectIdForSync).then(r => setProject(r.data)).catch(() => {}) }, 3000)
+    return () => clearInterval(t)
+  }, [projectIdForSync, anyRunning])
+
   if (!project) return null
 
   // Mirrors every other page's convention: activeEntityId null (or stale/unmatched) means the primary entity.
@@ -983,9 +1028,12 @@ export default function AssessmentPage() {
         if (data.error) throw new Error(data.error)
       }
       await refresh()
-      setOpenAgentId(agentId)
+      // With several agents running at once, don't yank the reviewer out of whatever drawer they have open.
+      setOpenAgentId(cur => cur ?? agentId)
     } catch (e: any) {
-      alert('Run failed: ' + (e.message || 'Unknown error'))
+      // A dropped connection doesn't cancel the run — it carries on server-side and polling picks it up.
+      if (e instanceof TypeError || /^HTTP 5\d\d$|network|fetch/i.test(e.message || '')) await refresh().catch(() => {})
+      else alert('Run failed: ' + (e.message || 'Unknown error'))
     }
     setRunningIds(prev => { const next = new Set(prev); next.delete(agentId); return next })
   }
@@ -1044,6 +1092,7 @@ export default function AssessmentPage() {
         {openAgentId && (
           <AgentDrawer
             project={project} entity={entity} agentId={openAgentId} onChanged={refresh} onApproved={advanceAfterApprove}
+            onStopped={id => setRunningIds(prev => { const next = new Set(prev); next.delete(id); return next })}
             quickRunning={runningIds.has(openAgentId)}
           />
         )}

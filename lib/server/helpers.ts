@@ -305,6 +305,27 @@ export async function saveProject(project: any) {
   if (error) throw new Error(error.message)
 }
 
+// Serializes read-modify-write cycles per project within one server instance. Whole-project saves are
+// last-writer-wins, so two cycles interleaving (e.g. two agents finishing at once) would drop one's changes.
+const projectLocks = new Map<string, Promise<unknown>>()
+
+/** Loads the CURRENT project, applies `mutate` and saves — all queued behind any other updateProject call
+ *  for the same project. Long-running work (agent runs) must not hold the project across the run: do the
+ *  run on its own copy, then use this to merge just its result into whatever is stored by then. */
+export async function updateProject<T>(id: string, mutate: (project: any) => T | Promise<T>): Promise<T> {
+  const prev = projectLocks.get(id) ?? Promise.resolve()
+  const run = prev.catch(() => {}).then(async () => {
+    const project = await loadProject(id)
+    if (!project) throw new Error('Project not found')
+    const result = await mutate(project)
+    await saveProject(project)
+    return result
+  })
+  const tail = run.catch(() => {})
+  projectLocks.set(id, tail)
+  try { return await run } finally { if (projectLocks.get(id) === tail) projectLocks.delete(id) }
+}
+
 function findJsonBounds(cleaned: string): { start: number; end: number } {
   const start = cleaned.indexOf('{')
   if (start === -1) throw new Error('No JSON object found in SiaGPT response')
